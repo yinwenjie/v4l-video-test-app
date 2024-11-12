@@ -197,14 +197,11 @@ std::unordered_map<std::string, int> gEntropyModeMap = {
     {"AVC_CABAC",                   V4L2_MPEG_VIDEO_H264_ENTROPY_MODE_CABAC },
 };
 
-DMABuffer::DMABuffer(uint32_t size, int fd) : mSize(size), mFd(dup(fd)) {}
-
-DMABuffer::~DMABuffer() {
-    if (mFd >= 0) {
-        close(mFd);
-        mFd = -1;
-    }
-}
+std::unordered_map<std::string, int> gMemoryTypeMap = {
+    {"MMAP",                        V4L2_MEMORY_MMAP},
+    {"DMA_BUF",                     V4L2_MEMORY_DMABUF},
+    {"USERPTR",                     V4L2_MEMORY_USERPTR},
+};
 
 V4l2Codec::V4l2Codec(unsigned int codec, unsigned int pixel,
                      std::string sessionId)
@@ -542,16 +539,19 @@ int V4l2Codec::stopOutput() {
 }
 
 int V4l2Codec::setOutputBufferData(std::shared_ptr<v4l2_buffer> buf) {
-    auto itr = mOutputDMABuffersPool.find(buf->index);
-    if (itr == mOutputDMABuffersPool.end()) {
+    auto itr = mOutputBuffersPool.find(buf->index);
+    if (itr == mOutputBuffersPool.end()) {
         LOGE("Error: no DMA buffer found for buffer index: %d\n", buf->index);
         return -EINVAL;
     }
-    auto& dmaBuf = (*itr).second;
-    buf->m.planes[0].bytesused = getOutputSize();
-    buf->m.planes[0].data_offset = 0;
-    buf->m.planes[0].length = getOutputSize();
-    buf->m.planes[0].m.fd = dmaBuf->mFd;
+    auto& buffer = itr->second;
+    if (mMemoryType == V4L2_MEMORY_DMABUF) {
+        auto dmaBuf = std::dynamic_pointer_cast<DMABuffer>(buffer);
+        buf->m.planes[0].bytesused = getOutputSize();
+        buf->m.planes[0].data_offset = 0;
+        buf->m.planes[0].length = getOutputSize();
+        buf->m.planes[0].m.fd = dmaBuf->mFd;
+    }
     return 0;
 }
 
@@ -591,6 +591,13 @@ int V4l2Codec::setDump(std::string inputFile, std::string outputFile) {
         LOGE("Error: failed to open output file.\n");
     }
     return 0;
+}
+
+int V4l2Codec::setMemoryType(std::string memoryType) { 
+    mMemoryType = gMemoryTypeMap[memoryType];
+    mV4l2Driver->setMemoryType(mMemoryType);
+    LOGD("Set MemoryType: %u.\n", mMemoryType);
+    return 0; 
 }
 
 int V4l2Codec::allocateBuffers(port_type port) {
@@ -637,7 +644,7 @@ void V4l2Codec::freeBuffers(port_type port) {
     auto& pendingBuf =
         port == OUTPUT_PORT ? mPendingOutputBufs : mPendingInputBufs;
     auto& bufPool =
-        port == OUTPUT_PORT ? mOutputDMABuffersPool : mInputDMABuffersPool;
+        port == OUTPUT_PORT ? mOutputBuffersPool : mInputBuffersPool;
 
     auto handleFreeBuffers = [&]() {
         while (!bufs.empty()) {
@@ -682,28 +689,42 @@ std::shared_ptr<v4l2_buffer> V4l2Codec::allocateBuffer(int index, port_type port
     memset(plane, 0, sizeof(struct v4l2_plane) * VIDEO_MAX_PLANES);
 
     buf->type = port == INPUT_PORT ? INPUT_MPLANE : OUTPUT_MPLANE;
-    buf->memory = V4L2_MEMORY_DMABUF;
+    buf->memory = mMemoryType;
     buf->index = index;
     buf->length = 1;
     buf->m.planes = plane;
     buf->flags = 0;
     memset(&buf->timestamp, 0, sizeof(buf->timestamp));
 
-    std::shared_ptr<DMABuffer> dmaBuf = nullptr;
-    {
-        int ret, bufFd = -1;
-        ret = mV4l2Driver->AllocDMABuffer(bufSize, &bufFd);
-        if (ret) {
+    if (mMemoryType == V4L2_MEMORY_DMABUF) {
+        std::shared_ptr<DMABuffer> dmaBuf = nullptr;
+        {
+            int ret, bufFd = -1;
+            ret = mV4l2Driver->AllocDMABuffer(bufSize, &bufFd);
+            if (ret) {
+                return nullptr;
+            }
+            dmaBuf = std::make_shared<DMABuffer>(bufSize, bufFd);
+            close(bufFd);
+        }
+        if (port == INPUT_PORT) {
+            mInputBuffersPool[index] = dmaBuf;
+        } else {
+            mOutputBuffersPool[index] = dmaBuf;
+        }
+    } else if (mMemoryType == V4L2_MEMORY_MMAP) {
+        std::shared_ptr<MMAPBuffer> mmapBuf = std::make_shared<MMAPBuffer>();
+        int ret = mV4l2Driver->AllocMMAPBuffer(mmapBuf, buf);
+        if (ret)
+        {
+            LOGE("Allocate MMAP buffer failed.\n");
             return nullptr;
         }
-        dmaBuf = std::make_shared<DMABuffer>(bufSize, bufFd);
-        close(bufFd);
-    }
-
-    if (port == INPUT_PORT) {
-        mInputDMABuffersPool[index] = dmaBuf;
-    } else {
-        mOutputDMABuffersPool[index] = dmaBuf;
+        if (port == INPUT_PORT) {
+            mInputBuffersPool[index] = mmapBuf;
+        } else {
+            mOutputBuffersPool[index] = mmapBuf;
+        }
     }
 
     return buf;

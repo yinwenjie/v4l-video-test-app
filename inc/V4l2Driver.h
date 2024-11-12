@@ -8,17 +8,13 @@
 #ifndef _TEST_DRIVER_H_
 #define _TEST_DRIVER_H_
 
+#include <atomic>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <thread>
 
-#include <linux/v4l2-common.h>
-#include <linux/v4l2-controls.h>
-#include <linux/videodev2.h>
-#include <linux/dma-heap.h>
-#include <sys/mman.h>
-
+#include "Buffer.h"
 #include "ConfigParser.h"
 #include "Log.h"
 
@@ -208,6 +204,8 @@ class V4l2Driver {
     int OpenDMAHeap(std::string device);
     void CloseDMAHeap();
     int AllocDMABuffer(uint64_t size, int* fd);
+    int AllocMMAPBuffer(std::shared_ptr<MMAPBuffer> mmapBuf,
+                        std::shared_ptr<v4l2_buffer> buf);
 
     int registerCallbacks(std::shared_ptr<V4l2DriverCallback> cb);
     int threadLoop();
@@ -226,6 +224,7 @@ class V4l2Driver {
     int getSelection(struct v4l2_selection* sel);
     int getControl(struct v4l2_control* ctrl);
     int setControl(struct v4l2_control* ctrl);
+    int setMemoryType(unsigned int memoryType);
     int reqBufs(struct v4l2_requestbuffers* reqBufs);
     int queueBuf(v4l2_buffer* buf);
 
@@ -251,11 +250,15 @@ class V4l2Driver {
     bool mPollThreadExit = false;
     bool mPollThreadPaused = false;
 
+    unsigned int mMemoryType = 0;
+
     std::mutex mPollThreadLock;
     std::condition_variable mPauser;
 
     std::shared_ptr<V4l2DriverCallback> mCb;
     std::shared_ptr<std::thread> mPollThread;
+
+    std::atomic_bool mInputBufferQueued = false;
 };
 
 #endif
