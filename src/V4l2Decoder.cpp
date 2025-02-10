@@ -42,11 +42,9 @@ int V4l2Decoder::init() {
     if (ret) {
         return ret;
     }
-    if (mMemoryType == V4L2_MEMORY_DMABUF){
-        ret = mV4l2Driver->OpenDMAHeap("system");
-        if (ret) {
-            return ret;
-        }
+    ret = mV4l2Driver->OpenDMAHeap("system");
+    if (ret) {
+        return ret;
     }
     ret = mV4l2Driver->subscribeEvent(V4L2_EVENT_SOURCE_CHANGE);
     if (ret) {
@@ -71,15 +69,19 @@ int V4l2Decoder::init() {
 
 int V4l2Decoder::initFFStreamParser(std::string inputPath) {
     int ret = 0;
+
     mStreamParser = std::make_shared<FFStreamParser>(inputPath, mSessionId);
+
     ret = mStreamParser->init();
     if (ret) {
         return ret;
     }
+
     ret = mStreamParser->loopPackets();
     if (ret) {
         return ret;
     }
+
     return 0;
 }
 
@@ -92,9 +94,7 @@ void V4l2Decoder::deinit() {
     mV4l2Driver->unsubscribeEvent(V4L2_EVENT_EOS);
     mV4l2Driver->unsubscribeEvent(V4L2_EVENT_SOURCE_CHANGE);
     mV4l2Driver->Close();
-    if (mMemoryType == V4L2_MEMORY_DMABUF){
-        mV4l2Driver->CloseDMAHeap();
-    }
+    mV4l2Driver->CloseDMAHeap();
 }
 
 int V4l2Decoder::configureInput() {
@@ -123,12 +123,12 @@ int V4l2Decoder::configureInput() {
     LOGD("configureInput: width(%d),height(%d),stride(%d),inputSize(%d)\n",
         mWidth, mHeight, mStride, mInputSize);
 
-    //ctrl.id = V4L2_CID_MIN_BUFFERS_FOR_OUTPUT;
-    //ret = mV4l2Driver->getControl(&ctrl);
-    //if (ret) {
-    //    return ret;
-    //}
-    //mMinInputCount = ctrl.value;
+    ctrl.id = V4L2_CID_MIN_BUFFERS_FOR_OUTPUT;
+    ret = mV4l2Driver->getControl(&ctrl);
+    if (ret) {
+        return ret;
+    }
+    mMinInputCount = ctrl.value;
 
     if (mActualInputCount < mMinInputCount) {
         LOGD("update input count from %d to %d\n", mActualInputCount,
@@ -140,7 +140,7 @@ int V4l2Decoder::configureInput() {
         mMinInputCount, mActualInputCount);
     memset(&reqBufs, 0, sizeof(reqBufs));
     reqBufs.type = INPUT_MPLANE;
-    reqBufs.memory = mMemoryType;
+    reqBufs.memory = V4L2_MEMORY_DMABUF;
     reqBufs.count = mActualInputCount;
     ret = mV4l2Driver->reqBufs(&reqBufs);
     if (ret) {
@@ -188,11 +188,10 @@ int V4l2Decoder::configureOutput() {
     if (ret) {
         return ret;
     }
-    //mOBufWidth = fmt.fmt.pix_mp.width;
+    mOBufWidth = fmt.fmt.pix_mp.width;
     mOBufHeight = fmt.fmt.pix_mp.height;
     mStride = fmt.fmt.pix_mp.plane_fmt[0].bytesperline;
     mOutputSize = fmt.fmt.pix_mp.plane_fmt[0].sizeimage;
-    mOBufWidth = mStride;
     LOGD("%s: output Buffer(%dx%d), Stride(%d), OutputSize (%d)\n", __func__,
         mOBufWidth, mOBufHeight, mStride, mOutputSize);
 
@@ -220,7 +219,7 @@ int V4l2Decoder::configureOutput() {
 
     memset(&reqBufs, 0, sizeof(reqBufs));
     reqBufs.type = OUTPUT_MPLANE;
-    reqBufs.memory = mMemoryType;
+    reqBufs.memory = V4L2_MEMORY_DMABUF;
     reqBufs.count = mActualOutputCount;
     ret = mV4l2Driver->reqBufs(&reqBufs);
     if (ret) {
@@ -370,37 +369,26 @@ int V4l2Decoder::reconfigureOutput() {
 
 int V4l2Decoder::feedInputDataToV4l2Buffer(std::shared_ptr<v4l2_buffer> buf,
                                            bool& eos, uint32_t frameCount) {
-    int pktSize = 0;
-    void* bufAddr = nullptr;
-    auto itr = mInputBuffersPool.find(buf->index);
-    if (itr == mInputBuffersPool.end()) {
+    auto itr = mInputDMABuffersPool.find(buf->index);
+    if (itr == mInputDMABuffersPool.end()) {
         LOGE("Error: no DMA buffer found for buffer index: %d\n", buf->index);
         return -EINVAL;
     }
-    auto& buffer = itr->second;
+    auto& dmaBuf = (*itr).second;
 
-    if (mMemoryType == V4L2_MEMORY_DMABUF) {
-        auto dmaBuf = std::dynamic_pointer_cast<DMABuffer>(buffer);
-        MapBuf map(NULL, dmaBuf->mSize, PROT_READ | PROT_WRITE, MAP_SHARED, dmaBuf->mFd, 0);
-        if (!map.isMapSucess()) {
-            LOGE("Error: failed to mmap output buffer\n");
-            return -EINVAL;
-        }
-        void* bufAddr = map.getMappedAddr();
-        // LOG("%d Mapped input buffer ptr: %p\n", buf->index, bufAddr);
-        pktSize = mStreamParser->fillPacketData(bufAddr, eos);
-        buf->m.planes[0].bytesused = pktSize;
-        buf->m.planes[0].data_offset = 0;
-        buf->m.planes[0].length = getInputSize();
-        buf->m.planes[0].m.fd = dmaBuf->mFd;
-    } else if (mMemoryType == V4L2_MEMORY_MMAP) {
-        auto mmapBuf = std::dynamic_pointer_cast<MMAPBuffer>(buffer);
-        bufAddr = mmapBuf->start[0];
-        pktSize = mStreamParser->fillPacketData(bufAddr, eos);
-        buf->m.planes[0].bytesused = pktSize;
-        buf->m.planes[0].data_offset = 0;
-        buf->m.planes[0].length = getInputSize();
+    MapBuf map(NULL, dmaBuf->mSize, PROT_READ | PROT_WRITE, MAP_SHARED, dmaBuf->mFd, 0);
+    if (!map.isMapSucess()) {
+        LOGE("Error: failed to mmap output buffer\n");
+        return -EINVAL;
     }
+    void* bufAddr = map.getMappedAddr();
+    // LOG("%d Mapped input buffer ptr: %p\n", buf->index, bufAddr);
+
+    int pktSize = mStreamParser->fillPacketData(bufAddr, eos);
+    buf->m.planes[0].bytesused = pktSize;
+    buf->m.planes[0].data_offset = 0;
+    buf->m.planes[0].length = getInputSize();
+    buf->m.planes[0].m.fd = dmaBuf->mFd;
     // LOG("Filled pkg size: %d, length: %d, fd: %d\n", pktSize,
     // buf->m.planes[0].length, buf->m.planes[0].m.fd);
     if (mInputDumpFile != nullptr && pktSize) {
@@ -804,8 +792,7 @@ int V4l2Decoder::queueBuffers(int maxFrameCnt) {
     return ret;
 }
 
-int V4l2Decoder::writeDumpDataToFile(v4l2_buffer* buf) {
-    std::unique_lock<std::mutex> lock(mOutputBufLock);
+int V4l2Decoder::writeDumpDataToFile(v4l2_buffer* buffer) {
     // Writing one color plane.
     auto writePlane = [=](const uint8_t* p, uint32_t wBytes, uint32_t strideBytes,
                           uint32_t nLines) {
@@ -816,26 +803,13 @@ int V4l2Decoder::writeDumpDataToFile(v4l2_buffer* buf) {
         }
     };
     std::uint8_t* pBuffer = nullptr;
-    size_t bufferLen = 0;
-    if (mMemoryType == V4L2_MEMORY_DMABUF) {
-        MapBuf map(NULL, buf->m.planes[0].length, PROT_READ, MAP_SHARED, buf->m.planes[0].m.fd,
-                0);
-        if (!map.isMapSucess()) {
-            LOGE("Error: failed to mmap output buffer\n");
-            return -EINVAL;
-        }
-        pBuffer = (std::uint8_t*)map.getMappedAddr(); 
-    } else if (mMemoryType == V4L2_MEMORY_MMAP) {
-        auto itr = mOutputBuffersPool.find(buf->index);
-        if (itr == mOutputBuffersPool.end()) {
-            LOGE("Error: no mmap buffer found for buffer index: %d\n", buf->index);
-            return -EINVAL;
-        }
-        auto& buffer = itr->second;
-        auto mmapBuf = std::dynamic_pointer_cast<MMAPBuffer>(buffer);
-        pBuffer = (std::uint8_t*)mmapBuf->start[0];
+    MapBuf map(NULL, buffer->m.planes[0].length, PROT_READ, MAP_SHARED, buffer->m.planes[0].m.fd,
+               0);
+    if (!map.isMapSucess()) {
+        LOGE("Error: failed to mmap output buffer\n");
+        return -EINVAL;
     }
-    
+    pBuffer = (std::uint8_t*)map.getMappedAddr();
     int frameWidth = getFrameWidth(), frameHeight = getFrameHeight();
     int oBufWidth = getOutputBufferWidth(), oBufHeight = getOubputBufferHeight();
     switch (getColorFormat()) {
@@ -860,12 +834,12 @@ int V4l2Decoder::writeDumpDataToFile(v4l2_buffer* buf) {
         }
         case V4L2_PIX_FMT_QC08C:
         case V4L2_PIX_FMT_QC10C: {
-            fwrite(pBuffer, buf->m.planes[0].bytesused, 1, mOutputDumpFile);
+            fwrite(pBuffer, buffer->m.planes[0].bytesused, 1, mOutputDumpFile);
             break;
         }
         default: {
             LOGW("unsupport this color format: %x\n", getColorFormat());
-            fwrite(pBuffer, buf->m.planes[0].bytesused, 1, mOutputDumpFile);
+            fwrite(pBuffer, buffer->m.planes[0].bytesused, 1, mOutputDumpFile);
             break;
         }
     }

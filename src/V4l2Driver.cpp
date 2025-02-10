@@ -419,28 +419,6 @@ int V4l2Driver::AllocDMABuffer(uint64_t size, int* fd) {
     return ret;
 }
 
-int V4l2Driver::AllocMMAPBuffer(std::shared_ptr<MMAPBuffer> mmapBuf,
-                                std::shared_ptr<v4l2_buffer> buf) {
-    int ret = ioctl(mFd, VIDIOC_QUERYBUF, buf.get());
-    if (ret) {
-        LOGE("Error: VIDIOC_QUERYBUF failed while allocating mmap buf.\n");
-        return ret;
-    }
-
-    mmapBuf->length[0] = buf->m.planes[0].length;
-    mmapBuf->start[0] = mmap(NULL, buf->m.planes[0].length,
-                            PROT_READ | PROT_WRITE,
-                            MAP_SHARED,
-                            mFd, buf->m.planes[0].m.mem_offset);
-    if (MAP_FAILED == mmapBuf->start[0])
-    {
-        LOGE("Error: mmap failed while allocating mmap buf.\n");
-        return -1;
-    }
-    
-    return 0;
-}
-
 void ThreadFunc(V4l2Driver& driver) {
     driver.threadLoop();
 }
@@ -475,11 +453,6 @@ int V4l2Driver::threadLoop() {
     pollFds[0].fd = mFd;
 
     while (!mPollThreadExit) {
-        if (!mInputBufferQueued) {
-            usleep(10 * 1000);
-            continue;
-        }
-        
         int ret = poll(pollFds, 1, 1000);
         if (ret == -ETIMEDOUT) {
             LOGW("V4l2Driver: poll timedout\n");
@@ -510,13 +483,16 @@ int V4l2Driver::threadLoop() {
             buffer.type = OUTPUT_MPLANE;
             buffer.m.planes = plane;
             buffer.length = 1;
-            buffer.memory = mMemoryType;
-            if (ioctl(mFd, VIDIOC_DQBUF, &buffer)) {
-                break;
-            }
-            if (mCb->onV4l2BufferDone(&buffer)) {
-                mError = true;
-            }
+            buffer.memory = V4L2_MEMORY_DMABUF;
+            do {
+                if (ioctl(mFd, VIDIOC_DQBUF, &buffer)) {
+                    break;
+                }
+
+                if (mCb->onV4l2BufferDone(&buffer)) {
+                    mError = true;
+                }
+            } while (1);
         }
         if ((pollFds[0].revents & POLLOUT) || (pollFds[0].revents & POLLWRNORM)) {
             LOGV("V4l2Driver: OUT/WRNORM received.\n");
@@ -525,13 +501,15 @@ int V4l2Driver::threadLoop() {
             buffer.type = INPUT_MPLANE;
             buffer.m.planes = plane;
             buffer.length = 1;
-            buffer.memory = mMemoryType;
-            if (ioctl(mFd, VIDIOC_DQBUF, &buffer)) {
-                break;
-            }
-            if (mCb->onV4l2BufferDone(&buffer)) {
-                mError = true;
-            }
+            buffer.memory = V4L2_MEMORY_DMABUF;
+            do {
+                if (ioctl(mFd, VIDIOC_DQBUF, &buffer)) {
+                    break;
+                }
+                if (mCb->onV4l2BufferDone(&buffer)) {
+                    mError = true;
+                }
+            } while (1);
         }
         {
             std::unique_lock<std::mutex> lock(mPollThreadLock);
@@ -720,11 +698,6 @@ int V4l2Driver::setControl(v4l2_control* ctrl) {
     return 0;
 }
 
-int V4l2Driver::setMemoryType(unsigned int memoryType) { 
-    mMemoryType = memoryType;
-    return 0; 
-}
-
 int V4l2Driver::reqBufs(struct v4l2_requestbuffers* reqbufs) {
     int ret = 0;
 
@@ -740,22 +713,11 @@ int V4l2Driver::reqBufs(struct v4l2_requestbuffers* reqbufs) {
 }
 
 int V4l2Driver::queueBuf(v4l2_buffer* buf) {
-    if (!buf) {
-        LOGE("Error: queuing empty v4l2 buffer.\n");
-        return -EINVAL;
-    }
-    
     int ret = ioctl(mFd, VIDIOC_QBUF, buf);
     if (ret) {
         LOGE("failed to QBUF: %s\n", strerror(ret));
         return -EINVAL;
     }
-
-    if (buf->type == INPUT_MPLANE && !mInputBufferQueued){
-        mInputBufferQueued = true;
-        usleep(10 * 1000);
-    }
-    
     return 0;
 }
 

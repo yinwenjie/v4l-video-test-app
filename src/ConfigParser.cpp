@@ -234,7 +234,6 @@ int parseJsonConfigs(
         }
         CHECK_MANDATORY(testConfig, CodecName, String);
         CHECK_MANDATORY(testConfig, PixelFormat, String);
-        CHECK_OPTIONAL(testConfig, MemoryType, String, "DMA_BUF");
 
         CHECK_MANDATORY(testConfig, Width, Int);
         CHECK_MANDATORY(testConfig, Height, Int);

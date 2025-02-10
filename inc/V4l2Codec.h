@@ -43,6 +43,13 @@ class MapBuf {
     bool mIsMappingDone;
 };
 
+struct DMABuffer {
+    explicit DMABuffer(uint32_t size, int fd);
+    ~DMABuffer();
+    uint32_t mSize;
+    int mFd;
+};
+
 class V4l2CodecCallback {
   public:
     V4l2CodecCallback() = delete;
@@ -124,7 +131,6 @@ class V4l2Codec {
     int queueBuffer(std::shared_ptr<v4l2_buffer> buffer);
     int setOutputBufferData(std::shared_ptr<v4l2_buffer> buf);
     int setDump(std::string inputFile, std::string outputFile);
-    int setMemoryType(std::string memoryType);
 
   protected:
     std::mutex mInputBufLock;
@@ -133,8 +139,8 @@ class V4l2Codec {
 
     std::map<int, int> mIDRSeek, mRandomSeek;
 
-    std::unordered_map<int, std::shared_ptr<Buffer>> mInputBuffersPool;
-    std::unordered_map<int, std::shared_ptr<Buffer>> mOutputBuffersPool;
+    std::unordered_map<int, std::shared_ptr<DMABuffer>> mInputDMABuffersPool;
+    std::unordered_map<int, std::shared_ptr<DMABuffer>> mOutputDMABuffersPool;
 
     std::list<std::shared_ptr<v4l2_buffer>> mInputBufs;
     std::list<std::shared_ptr<v4l2_buffer>> mPendingInputBufs;
@@ -226,7 +232,6 @@ class V4l2Codec {
     unsigned int mPixelFmt = 0;
     unsigned int mCodecFmt = 0;
 
-    unsigned int mMemoryType = 0;
 };
 
 #endif
