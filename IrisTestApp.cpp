@@ -10,13 +10,12 @@
 #include <signal.h>
 #include <unistd.h>
 
-#include <regex>
-#include <chrono>
-#include <string>
-#include <fstream>
-#include <iostream>
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
+#include <iostream>
+#include <regex>
+#include <string>
 #include <unordered_map>
 
 #include "ConfigParser.h"
@@ -28,15 +27,15 @@
 #define SUCCESS 0
 #define BACKTRACE_SIZE 1024
 
-#define TEST_APP_VERSION "1.14"
+#define TEST_APP_VERSION "1.13"
 
 uint32_t gLogLevel = 0xF;
 
 std::unordered_map<std::string, unsigned int> gCodecIDMap = {
-    {"VP9", V4L2_PIX_FMT_VP9},
-    {"AV1", V4L2_PIX_FMT_AV1},
     {"AVC", V4L2_PIX_FMT_H264},
+    {"VP9", V4L2_PIX_FMT_VP9},
     {"HEVC", V4L2_PIX_FMT_HEVC},
+    {"AV1", V4L2_PIX_FMT_AV1},
 };
 
 std::unordered_map<std::string, unsigned int> gColorFormatIDMap = {
@@ -278,8 +277,8 @@ int getRegexMatchFileNames(std::string regexPath,
 }
 
 void runAndWaitForComplete(
-        std::string& ExecutionMode, std::unordered_map<std::string,
-        ConfigureStruct>& mapTestCasesConfig, std::ofstream & resultFile) {
+    std::string& ExecutionMode,
+    std::unordered_map<std::string, ConfigureStruct>& mapTestCasesConfig) {
     auto runTest = [&](std::string test) -> void {
         int ret = 0;
         auto& config = mapTestCasesConfig[test];
@@ -292,11 +291,8 @@ void runAndWaitForComplete(
 
         if (ret) {
             std::cout << "Testcase[ " << test << "] : Failed" << std::endl;
-            resultFile << "Testcase[ " << test << "] : Failed" << std::endl;
-
         } else {
             std::cout << "Testcase[ " << test << "] : Passed" << std::endl;
-            resultFile << "Testcase[ " << test << "] : Passed" << std::endl;
         }
     };
 
@@ -331,13 +327,12 @@ static void showUsage() {
     printf("Usage : iris_v4l2_test [OPTIONS] CONFIG.json\n");
     printf("[OPTIONS] : --help       : No Argument Required         : Display the options\n");
     printf("[OPTIONS] : --config     : Argument Required            : Absolute path of config file\n");
-    printf("[OPTIONS] : --results    : Optional Argument Required   : Absolute path of Results.csv\n");
     printf("[OPTIONS] : --loglevel   : Optional Argument Required   : Absolute path of config file\n");
 }
 
 int main(int argc, char** argv) {
     int ret, option, codec = 0;
-    std::string configPath = "", resultsPath = "";
+    std::string configPath;
 
     InitSignalHandler();
 
@@ -346,12 +341,11 @@ int main(int argc, char** argv) {
         static struct option longOpts[] = {
             {"help",        no_argument,       0,  'h' },
             {"config",      required_argument, 0,  'c' },
-            {"results",     optional_argument, 0,  'r' },
             {"loglevel",    optional_argument, 0,  'l' },
             {0,             0,                 0,   0  }
         };
 
-        int opt = getopt_long(argc, argv, "h:c:l:r:",
+        int opt = getopt_long(argc, argv, "h:c:l:",
                 longOpts, &optIndex);
 
         if (opt == -1) {
@@ -364,11 +358,7 @@ int main(int argc, char** argv) {
                 return 0;
             case 'c':
                 configPath = optarg;
-                printf("Config file path: %s\n", configPath.c_str());
-                break;
-            case 'r':
-                resultsPath = argv[optind++];
-                printf("Results file path: %s\n", resultsPath.c_str());
+                printf("Config path: %s\n", configPath.c_str());
                 break;
             case 'l':
                 gLogLevel = atoi(argv[optind++]);
@@ -385,26 +375,11 @@ int main(int argc, char** argv) {
 
     ret = getRegexMatchFileNames(configPath, matched_files, pathToFile);
     if (ret) {
-        std::cout << "Testcase : Failed" << std::endl;
         return ret;
     }
 
     std::string ExecutionMode = "Sequential";
     std::unordered_map<std::string, ConfigureStruct> mapTestCasesConfig;
-
-    std::ofstream resultFile;
-    if (resultsPath == "") {
-        resultsPath = "/etc/Results.csv";
-    }
-
-    resultFile.open(resultsPath, std::ofstream::app);
-    if (!resultFile.is_open()) {
-        std::cout << "Testcase : Failed to open Results.csv file";
-        std::cout << std::endl;
-        return -1;
-    }
-
-    resultFile << "Testapp Version " << TEST_APP_VERSION << " ";
 
     for (const auto& filename : matched_files) {
         std::cout << "parse " << filename << '\n';
@@ -413,14 +388,10 @@ int main(int argc, char** argv) {
                                mapTestCasesConfig);
         if (ret) {
             printf("Error: Json parsing failed - %s\n", filename.c_str());
-
-            std::cout << "Testcase[" << filename << "] : Failed" << std::endl;
-            resultFile << "Testcase[ " << filename << "] : Failed" << std::endl;
             return ret;
         }
 
-        runAndWaitForComplete(ExecutionMode,
-                mapTestCasesConfig, std::ref(resultFile));
+        runAndWaitForComplete(ExecutionMode, mapTestCasesConfig);
     }
 
     std::cout << "Testapp Version " << TEST_APP_VERSION << std::endl;
