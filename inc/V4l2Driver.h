@@ -239,6 +239,9 @@ class V4l2Driver {
 
     int isMatchVideoDevice(int domain, int fd, const char* name);
     int queryMenu(v4l2_querymenu* querymenu);
+    void beginSeek();
+    void endSeek();
+    bool getDequeueOutputDone() { return !mHasOutputBuffer; };
 
   private:
     int mFd = -1;
@@ -259,6 +262,8 @@ class V4l2Driver {
     std::shared_ptr<std::thread> mPollThread;
 
     std::atomic_bool mBufferQueued = false;
+    std::atomic_bool mHasOutputBuffer = false;
+    std::atomic_bool mSeeking = false;
 };
 
 #endif

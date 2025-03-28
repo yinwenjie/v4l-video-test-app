@@ -637,9 +637,17 @@ int V4l2Decoder::queueBuffers(int maxFrameCnt) {
     };
     auto handleDrainLastEvent = [&]() -> int {
         int ret = 0;
+        int count = 100;
         setDrainLastFlagReceived(false);
         setDrainSent(false);
         LOGW("queueBuffers: last flag for drain arrived\n");
+        while(count >= 0) {
+            if (mV4l2Driver->getDequeueOutputDone()) {
+                break;
+            }
+            usleep(5 * 1000);
+            count--;
+        }
         ret = start();
         if (ret != 0) {
             LOGE("Error: queueBuffers: resume failed.\n");
@@ -693,6 +701,7 @@ int V4l2Decoder::queueBuffers(int maxFrameCnt) {
             PrintCurrentTrace("V4l2Decoder::queueBuffers: wait first reconfig before seek failed");
             return ret;
         }
+        mV4l2Driver->beginSeek();
         handleSeek(seekTo);
         frameCounter = seekTo;
 
@@ -802,6 +811,7 @@ int V4l2Decoder::queueBuffers(int maxFrameCnt) {
             return ret;
         }
 
+        mV4l2Driver->endSeek();
         LOGI("frame count: %d\n", frameCounter);
         frameCounter++;
         retry_count = 0;

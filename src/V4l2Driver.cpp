@@ -566,6 +566,11 @@ int V4l2Driver::threadLoop() {
             break;
         }
         if (pollFds[0].revents & POLLERR) {
+            if (mSeeking) {
+                usleep(5 * 1000);
+                LOGV("V4l2Driver: seeking to ignore error\n");
+                continue;
+            }
             LOGI("V4l2Driver: poll error received\n");
             mError = true;
             mCb->onV4l2Error(POLLERR);
@@ -581,6 +586,9 @@ int V4l2Driver::threadLoop() {
         }
         if ((pollFds[0].revents & POLLIN) || (pollFds[0].revents & POLLRDNORM)) {
             LOGV("V4l2Driver: IN/RDNORM received.\n");
+            if (!mHasOutputBuffer) {
+                continue;
+            }
             memset(&buffer, 0, sizeof(buffer));
             memset(&plane[0], 0, sizeof(plane));
             buffer.type = OUTPUT_MPLANE;
@@ -589,6 +597,9 @@ int V4l2Driver::threadLoop() {
             buffer.memory = mMemoryType;
             do {
                 if (ioctl(mFd, VIDIOC_DQBUF, &buffer)) {
+                    if (errno == EPIPE) {
+                        mHasOutputBuffer = false;
+                    }
                     LOGE("Error: Failed to poll output buffer.\n");
                     break;
                 }
@@ -600,6 +611,11 @@ int V4l2Driver::threadLoop() {
         }
         if ((pollFds[0].revents & POLLOUT) || (pollFds[0].revents & POLLWRNORM)) {
             LOGV("V4l2Driver: OUT/WRNORM received.\n");
+            if (mSeeking) {
+                usleep(5 * 1000);
+                LOGV("V4l2Driver: ignore dequeue Input during seeking\n");
+                continue;
+            }
             memset(&buffer, 0, sizeof(buffer));
             memset(&plane[0], 0, sizeof(plane));
             buffer.type = INPUT_MPLANE;
@@ -850,7 +866,18 @@ int V4l2Driver::queueBuf(v4l2_buffer* buf) {
         return -EINVAL;
     }
     mBufferQueued = true;
+    if (buf->type == OUTPUT_MPLANE) {
+        mHasOutputBuffer = true;
+    }
     return 0;
+}
+
+void V4l2Driver::beginSeek() {
+    mSeeking = true;
+}
+
+void V4l2Driver::endSeek() {
+    mSeeking = false;
 }
 
 int V4l2Driver::decCommand(v4l2_decoder_cmd* cmd) {
