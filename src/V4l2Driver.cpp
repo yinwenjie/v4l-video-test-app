@@ -192,6 +192,20 @@ const char* ctrl_name(int id) {
         case V4L2_CID_MPEG_VIDEO_BASELAYER_PRIORITY_ID:
             name = "Base Priority Id";
             break;
+        case V4L2_CID_MPEG_VIDC_LOWLATENCY_REQUEST:
+            name = "Low Latency Decoding";
+            break;
+        case V4L2_CID_MPEG_VIDEO_H264_CHROMA_QP_INDEX_OFFSET:
+            name = "Chroma QP Offset";
+            break;
+        case V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_ALPHA:
+        case V4L2_CID_MPEG_VIDEO_HEVC_LF_TC_OFFSET_DIV2:
+            name = "LoopFilter Alpha Offset";
+            break;
+        case V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_BETA:
+        case V4L2_CID_MPEG_VIDEO_HEVC_LF_BETA_OFFSET_DIV2:
+            name = "LoopFilter Beta Offset";
+            break;
         default:
             break;
     }
@@ -1030,4 +1044,19 @@ int V4l2Driver::enumFrameInterval(v4l2_frmivalenum* fival) {
         fival->stepwise.max.denominator);
 
     return 0;
+}
+
+bool V4l2Driver::validateCapabilityRange(int32_t id, int32_t val) {
+    struct v4l2_queryctrl cap;
+    memset(&cap, 0, sizeof(struct v4l2_queryctrl));
+    cap.id = id;
+    if (!queryControl(&cap)) {
+        if (val >= cap.minimum && val <= cap.maximum) {
+            return true;
+        } else {
+            LOGE("id = %u, value = %u, min = %u, max = %u",
+                cap.id, val, cap.minimum, cap.maximum);
+        }
+    }
+    return false;
 }

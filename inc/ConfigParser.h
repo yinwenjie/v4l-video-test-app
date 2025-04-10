@@ -59,6 +59,7 @@ struct ConfigureStruct {
     int PauseDurationMS;
     int InputBufferCount;
     int OutputBufferCount;
+    int LowLatencyDecoding;
 
     std::string Domain;
     std::string CodecName;
@@ -70,6 +71,7 @@ struct ConfigureStruct {
     std::string DumpInputPath;
 
     std::list<std::shared_ptr<EventConfig>> staticControls;
+    std::list<std::shared_ptr<EventConfig>> staticOptions;
     std::list<std::shared_ptr<EventConfig>> dynamicControls;
     std::list<std::shared_ptr<EventConfig>> dynamicCommands;
 };

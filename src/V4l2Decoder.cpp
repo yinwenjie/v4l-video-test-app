@@ -1,6 +1,6 @@
 /*
  **************************************************************************************************
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2026 Qualcomm Innovation Center, Inc. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  **************************************************************************************************
 */
@@ -113,7 +113,7 @@ int V4l2Decoder::configureInput() {
     ctrl.id = V4L2_CID_MIN_BUFFERS_FOR_OUTPUT;
     ret = mV4l2Driver->getControl(&ctrl);
     if (ret) {
-        LOGW("WARNING: Failed to query min input buffer count. Use default values");
+        LOGW("WARNING: Failed to query min input buffer count. Use default values\n");
     } else {
         mMinInputCount = ctrl.value;
     }
@@ -274,6 +274,14 @@ int V4l2Decoder::detectResolutionChange(bool* hasResolutionChanged) {
         mWidth = width;
         mHeight = height;
         *hasResolutionChanged = true;
+    }
+    return 0;
+}
+
+int V4l2Decoder::setLowLatencyDecoding(int lowLatencyDecoding) {
+    LOGD("%s: Setting Low-Latency decoding: %d.\n", __func__, lowLatencyDecoding);
+    if (lowLatencyDecoding) {
+        return setControl(V4L2_CID_MPEG_VIDC_LOWLATENCY_REQUEST, lowLatencyDecoding);
     }
     return 0;
 }

@@ -59,6 +59,7 @@ class V4l2Decoder : public V4l2Codec {
     int seekToFrame(int frame);
     int handleRandomSeek(int& seekPos);
     int detectResolutionChange(bool* hasResolutionChanged);
+    int setLowLatencyDecoding(int lowLatencyDecoding);
 
   private:
     friend class V4l2DecoderCB;

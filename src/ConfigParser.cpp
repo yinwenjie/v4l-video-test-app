@@ -135,14 +135,19 @@ static int getConfigs(Json::Value allConfigs, ConfigureStruct& config, std::stri
             CHECK_TRUE(cfgIdx["Fnum"].empty(), "StaticConfigs doesnt need Fnum");
             lCtrls->fnum = -1;
             config.staticControls.push_back(lCtrls);
-
+        } else if (Configs.compare("StaticOptions") == 0) {
+            if (MandatoryCtrls.find(cfgIdx["Id"].asString()) != MandatoryCtrls.end()) {
+                count++;
+            }
+            CHECK_TRUE(cfgIdx["Fnum"].empty(), "StaticOptions doesnt need Fnum");
+            lCtrls->fnum = -1;
+            config.staticOptions.push_back(lCtrls);
         } else if (Configs.compare("DynamicControls") == 0) {
             CHECK_TRUE(!cfgIdx["Fnum"].empty(), "DynamicConfigs need Fnum");
             CHECK_TRUE(cfgIdx["Fnum"].isInt(), "Configs::Fnum is Int");
 
             lCtrls->fnum = cfgIdx["Fnum"].asInt();
             config.dynamicControls.push_back(lCtrls);
-
         } else if (Configs.compare("DynamicCommands") == 0) {
             CHECK_TRUE(!cfgIdx["Fnum"].empty(), "DynamicConfigs need Fnum");
             CHECK_TRUE(cfgIdx["Fnum"].isInt(), "Configs::Fnum is int");
@@ -260,6 +265,7 @@ int parseJsonConfigs(
         } else {
             CHECK_OPTIONAL(testConfig, InputBufferCount, Int, 16);
             CHECK_OPTIONAL(testConfig, OutputBufferCount, Int, 16);
+            CHECK_OPTIONAL(testConfig, LowLatencyDecoding, Int, 0);
         }
 
         ret = getConfigs(testConfig, config, "StaticControls");
@@ -267,6 +273,12 @@ int parseJsonConfigs(
             printf("Static configs are mandatory for Encoder!\n");
             PrintCurrentTrace("ConfigParser::parseJsonConfigs: static configs failed");
             return ret;
+        }
+
+        ret = getConfigs(testConfig, config, "StaticOptions");
+        if (ret) {
+            printf("Static options are not mandatory for Encoder!\n");
+            return 0;
         }
 
         ret = getConfigs(testConfig, config, "DynamicControls");

@@ -47,6 +47,7 @@ set(CMAKE_EXE_LINKER_FLAGS "-static")
 # Includes
 include_directories(
     inc/
+    vidc_extensions/
 )
 
 set(VIDC_TEST_SOURCES

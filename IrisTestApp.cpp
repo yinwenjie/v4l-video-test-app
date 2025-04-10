@@ -1,6 +1,6 @@
 /*
  **************************************************************************************************
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2025 Qualcomm Innovation Center, Inc. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  **************************************************************************************************
 */
@@ -28,7 +28,7 @@
 
 #define SUCCESS 0
 
-#define TEST_APP_VERSION "1.15"
+#define TEST_APP_VERSION "1.16"
 
 uint32_t gLogLevel = 0xF;
 
@@ -93,6 +93,7 @@ int TestingDecoder(ConfigureStruct& config, std::string sessionId) {
     TRACE_RETURN_IF_ERROR(ret, "TestingDecoder: populateDynamicCommands failed");
 
     mDecoder->setDump(config.DumpInputPath, config.Outputpath);
+    mDecoder->setLowLatencyDecoding(config.LowLatencyDecoding);
 
     ret = mDecoder->setInputSizeOverWrite(2 * 1024 * 1024);
     TRACE_RECORD_IF_ERROR(ret, "TestingDecoder: setInputSizeOverWrite failed");
@@ -164,6 +165,11 @@ int TestingEncoder(ConfigureStruct& config, std::string sessionId) {
 
     ret = mEncoder->populateStaticConfigs(config.staticControls);
     TRACE_RETURN_IF_ERROR(ret, "TestingEncoder: populateStaticConfigs failed");
+
+    ret = mEncoder->populateStaticOptions(config.staticOptions);
+    if (ret) {
+        return ret;
+    }
 
     ret = mEncoder->populateDynamicConfigs(config.dynamicControls);
     TRACE_RETURN_IF_ERROR(ret, "TestingEncoder: populateDynamicConfigs failed");

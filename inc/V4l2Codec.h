@@ -156,6 +156,8 @@ class V4l2Codec {
   public:
     int populateStaticConfigs(
         std::list<std::shared_ptr<EventConfig>> cfgControls);
+    int populateStaticOptions(
+        std::list<std::shared_ptr<EventConfig>> cfgControls);
     int populateDynamicConfigs(
         std::list<std::shared_ptr<EventConfig>> cfgControls);
     int populateDynamicCommands(

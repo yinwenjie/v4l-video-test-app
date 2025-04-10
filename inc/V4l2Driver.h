@@ -18,6 +18,8 @@
 #include "ConfigParser.h"
 #include "Log.h"
 
+#include "v4l2_vidc_extensions.h"
+
 #ifndef V4L2_CID_MPEG_VIDEO_LTR_COUNT
 #define V4L2_CID_MPEG_VIDEO_LTR_COUNT                       (V4L2_CID_MPEG_BASE + 232)
 #endif
@@ -236,6 +238,7 @@ class V4l2Driver {
     int enumFormat(struct v4l2_fmtdesc* fmtdesc);
     int enumFramesize(struct v4l2_frmsizeenum* frmsize);
     int enumFrameInterval(struct v4l2_frmivalenum* fival);
+    bool validateCapabilityRange(int32_t id, int32_t val);
 
     int isMatchVideoDevice(int domain, int fd, const char* name);
     int queryMenu(v4l2_querymenu* querymenu);

@@ -269,6 +269,8 @@ int V4l2Encoder::configureInput() {
     fmt.type = INPUT_MPLANE;
     ret = mV4l2Driver->getFormat(&fmt);
     TRACE_RETURN_IF_ERROR(ret, "V4l2Encoder::configureInput: getFormat failed");
+    LOGV("%s: Setting ColorPrimaries: %d, MatrixCoeff: %d, TransferChar:%d, VideoRange:%d\n", __func__,
+            mInputColorPrimaries, mInputMatrixCoeff, mInputTransferChar, mInputVideoRange);
     fmt.fmt.pix_mp.width = mWidth;
     fmt.fmt.pix_mp.height = mHeight;
     fmt.fmt.pix_mp.colorspace = mInputColorPrimaries;
@@ -281,6 +283,8 @@ int V4l2Encoder::configureInput() {
     mInputMatrixCoeff = fmt.fmt.pix_mp.ycbcr_enc;
     mInputTransferChar = fmt.fmt.pix_mp.xfer_func;
     mInputVideoRange = fmt.fmt.pix_mp.quantization;
+    LOGV("%s: ColorPrimaries: %d, MatrixCoeff: %d, TransferChar:%d, VideoRange:%d set.\n", __func__,
+            mInputColorPrimaries, mInputMatrixCoeff, mInputTransferChar, mInputVideoRange);
     mInputSize = fmt.fmt.pix_mp.plane_fmt[0].sizeimage;
     mStride = fmt.fmt.pix_mp.plane_fmt[0].bytesperline;
     mScanline = calc_scanline_aligned(mHeight, mStride, mInputSize, mPixelFmt);

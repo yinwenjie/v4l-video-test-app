@@ -265,6 +265,8 @@ This table specify the valid set of tags and it's possible value for creation of
 |       |                        |                                                                |                |                                |                            |
 | 19    | "OutputBufferCount"    | Max Number of Output Buffers to circulate for test execution   | Integer        | Dec: [1,16] Enc: [1,32]        | Optional                   |
 |       |                        |                                                                |                |                                |                            |
+| 20    | "StaticOptions"        | Other options needed during initialization of the app          | Array          | Values from Options Table      | Optional                   |
+|       |                        |                                                                |                |                                |                            |
 
 ## 4. Controls Table
 This table specify the vaild controls which can be used and their possible value to run an Encoder test. These controls are given as StaticControls or DynamicControls in JSON config file.
@@ -365,7 +367,27 @@ This table specify the vaild controls which can be used and their possible value
 |       |                        |                             |                |                                                                    |                           |
 | 46    | Static Control         | "BasePriorityID"            | "Int"          | [0, 63]                                                            | Optional                  |
 |       |                        |                             |                |                                                                    |                           |
+| 47    | Static Control         | "LoopFilterMode"            | "String"       | {"ENABLED", "DISABLED", "DISABLED_AT_SLICE_BOUNDARY"}              | Optional                  |
+|       |                        |                             |                |                                                                    |                           |
+| 48    | Static Control         | "LFAlphaOffset"             | "Int"          | [-6, 6]                                                            | Optional                  |
+|       |                        |                             |                |                                                                    |                           |
+| 49    | Static Control         | "LFBetaOffset"              | "Int"          | [-6, 6]                                                            | Optional                  |
+|       |                        |                             |                |                                                                    |                           |
 
-## 5. License
+## 5. Options Table
+
+| S.No. | Id                     | Vtype                       | Value                             | Mandatory / Optional      |
+|:-----:|:----------------------:|:---------------------------:|:---------------------------------:|:-------------------------:|
+|       |                        |                             |                                   |                           |
+|   1   | ColorSpacePrimaries    |  "String"                   |{"DEFAULT","SMPTE170M","SMPTE240M","REC709","BT878","470_SYSTEM_M","470_SYSTEM_BG","JPEG","SRGB","OPRGB","BT2020","RAW","DCI_P3",}|         Optional          |
+|       |                        |                             |                                                                                                                                  |                           |
+|   2   | ColorSpaceMatrix       |  "String"                   |{"DEFAULT","601","709","XV601","XV709","SYCC","BT2020","BT2020_CONST_LUM","SMPTE240M"}                                            |         Optional          |
+|       |                        |                             |                                                                                                                                  |                           |
+|   3   | ColorSpaceTransfer     |  "String"                   |{"DEFAULT","709","SRGB","OPRGB","SMPTE240M","NONE","DCI_P3","SMPTE2084"              }                                            |         Optional          |
+|       |                        |                             |                                                                                                                                  |                           |
+|   4   | ColorSpaceRangefer     |  "String"                   |{"DEFAULT","FULL_RANGE","LIM_RANGE",}                                                                                             |         Optional          |
+|       |                        |                             |                                                                                                                                  |                           |
+
+## 6. License
 
 Project is licensed under the **BSD-3-Clause-Clear License**. See [LICENSE.txt](https://github.com/quic/v4l-video-test-app/blob/master/LICENSE.txt) for the full license text.

@@ -1,6 +1,6 @@
 /*
  **************************************************************************************************
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2026 Qualcomm Innovation Center, Inc. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  **************************************************************************************************
 */
@@ -56,7 +56,8 @@ std::unordered_map<std::string, unsigned int> gV4l2KeyCIDMap = {
     {"HEVC_MinPQP",                  V4L2_CID_MPEG_VIDEO_HEVC_P_FRAME_MIN_QP},
     {"HEVC_MinBQP",                  V4L2_CID_MPEG_VIDEO_HEVC_B_FRAME_MIN_QP},
     {"HEVC_LoopFilterMode",          V4L2_CID_MPEG_VIDEO_HEVC_LOOP_FILTER_MODE},
-    {"HEVC_LFTCOffset",              V4L2_CID_MPEG_VIDEO_HEVC_LF_TC_OFFSET_DIV2},
+    {"HEVC_LFBetaOffset",            V4L2_CID_MPEG_VIDEO_HEVC_LF_BETA_OFFSET_DIV2},
+    {"HEVC_LFAlphaOffset",           V4L2_CID_MPEG_VIDEO_HEVC_LF_TC_OFFSET_DIV2},
     {"HEVC_HierCodingL0BR",          V4L2_CID_MPEG_VIDEO_HEVC_HIER_CODING_L0_BR},
     {"HEVC_HierCodingL1BR",          V4L2_CID_MPEG_VIDEO_HEVC_HIER_CODING_L1_BR},
     {"HEVC_HierCodingL2BR",          V4L2_CID_MPEG_VIDEO_HEVC_HIER_CODING_L2_BR},
@@ -76,6 +77,7 @@ std::unordered_map<std::string, unsigned int> gV4l2KeyCIDMap = {
     {"GOPSize",                      V4L2_CID_MPEG_VIDEO_GOP_SIZE},
     {"LTRCount",                     V4L2_CID_MPEG_VIDEO_LTR_COUNT},
     {"VBVDelay",                     V4L2_CID_MPEG_VIDEO_VBV_DELAY},
+    {"VBVSize",                      V4L2_CID_MPEG_VIDEO_VBV_SIZE},
     {"PrefixHeaderMode",             V4L2_CID_MPEG_VIDEO_HEADER_MODE},
     {"PeakBitrate",                  V4L2_CID_MPEG_VIDEO_BITRATE_PEAK},
     {"BitRateMode",                  V4L2_CID_MPEG_VIDEO_BITRATE_MODE},
@@ -91,6 +93,7 @@ std::unordered_map<std::string, unsigned int> gV4l2KeyCIDMap = {
     {"PrependPsToIDR",               V4L2_CID_MPEG_VIDEO_PREPEND_SPSPPS_TO_IDR},
     {"BasePriorityID",               V4L2_CID_MPEG_VIDEO_BASELAYER_PRIORITY_ID},
     {"IntraRefreshType",             V4L2_CID_MPEG_VIDEO_INTRA_REFRESH_PERIOD_TYPE},
+    {"ChromaQPOffset",               V4L2_CID_MPEG_VIDEO_H264_CHROMA_QP_INDEX_OFFSET},
 };
 
 std::unordered_map<std::string, int> gProfileMap = {
@@ -143,6 +146,51 @@ std::unordered_map<std::string, int> gLevelMap = {
     { "HEVC_6.0",                    V4L2_MPEG_VIDEO_HEVC_LEVEL_6},
     { "HEVC_6.1",                    V4L2_MPEG_VIDEO_HEVC_LEVEL_6_1},
     { "HEVC_6.2",                    V4L2_MPEG_VIDEO_HEVC_LEVEL_6_2},
+};
+
+std::unordered_map<std::string, int> gColorSpacePrimariesMap = {
+    {"DEFAULT",                      V4L2_COLORSPACE_DEFAULT},
+    {"SMPTE170M",                    V4L2_COLORSPACE_SMPTE170M},
+    {"SMPTE240M",                    V4L2_COLORSPACE_SMPTE240M},
+    {"REC709",                       V4L2_COLORSPACE_REC709},
+    {"BT878",                        V4L2_COLORSPACE_BT878},
+    {"470_SYSTEM_M",                 V4L2_COLORSPACE_470_SYSTEM_M},
+    {"470_SYSTEM_BG",                V4L2_COLORSPACE_470_SYSTEM_BG},
+    {"JPEG",                         V4L2_COLORSPACE_JPEG},
+    {"SRGB",                         V4L2_COLORSPACE_SRGB},
+    {"OPRGB",                        V4L2_COLORSPACE_OPRGB},
+    {"BT2020",                       V4L2_COLORSPACE_BT2020},
+    {"RAW",                          V4L2_COLORSPACE_RAW},
+    {"DCI_P3",                       V4L2_COLORSPACE_DCI_P3},
+};
+
+std::unordered_map<std::string, int> gColorSpaceMatrixMap = {
+    {"DEFAULT",                      V4L2_YCBCR_ENC_DEFAULT},
+    {"601",                          V4L2_YCBCR_ENC_601},
+    {"709",                          V4L2_YCBCR_ENC_709},
+    {"XV601",                        V4L2_YCBCR_ENC_XV601},
+    {"XV709",                        V4L2_YCBCR_ENC_XV709},
+    {"SYCC",                         V4L2_YCBCR_ENC_SYCC},
+    {"BT2020",                       V4L2_YCBCR_ENC_BT2020},
+    {"BT2020_CONST_LUM",             V4L2_YCBCR_ENC_BT2020_CONST_LUM},
+    {"SMPTE240M",                    V4L2_YCBCR_ENC_SMPTE240M},
+};
+
+std::unordered_map<std::string, int> gColorSpaceTransferMap = {
+    {"DEFAULT",                      V4L2_XFER_FUNC_DEFAULT},
+    {"709",                          V4L2_XFER_FUNC_709},
+    {"SRGB",                         V4L2_XFER_FUNC_SRGB},
+    {"OPRGB",                        V4L2_XFER_FUNC_OPRGB},
+    {"SMPTE240M",                    V4L2_XFER_FUNC_SMPTE240M},
+    {"NONE",                         V4L2_XFER_FUNC_NONE},
+    {"DCI_P3",                       V4L2_XFER_FUNC_DCI_P3},
+    {"SMPTE2084",                    V4L2_XFER_FUNC_SMPTE2084},
+};
+
+std::unordered_map<std::string, int> gColorSpaceRangeferMap = {
+    {"DEFAULT",                      V4L2_QUANTIZATION_DEFAULT},
+    {"FULL_RANGE",                   V4L2_QUANTIZATION_FULL_RANGE},
+    {"LIM_RANGE",                    V4L2_QUANTIZATION_LIM_RANGE},
 };
 
 std::unordered_map<std::string, int> gLoopFilterModeMap = {
@@ -384,6 +432,10 @@ int V4l2Codec::populateStaticConfigs(
 
                 mStaticControls.push_back(control);
             }
+        } else if (idStr.compare("BFrames") == 0) {
+            if(!mV4l2Driver->validateCapabilityRange(V4L2_CID_MPEG_VIDEO_B_FRAMES, sControl->value)) {
+                LOGE("Error: failed to validate B frames: %d\n", sControl->value);
+            }
         }
 
         eventConfig.pop_front();
@@ -395,6 +447,28 @@ int V4l2Codec::populateStaticConfigs(
         queryControlsHEVC(level, tier);
     }
 
+    return 0;
+}
+
+int V4l2Codec::populateStaticOptions(std::list<std::shared_ptr<EventConfig>> eventConfig) {
+    LOGV("%s\n", __func__);
+    while (!eventConfig.empty()) {
+        auto ctrl = eventConfig.front();
+        eventConfig.pop_front();
+
+        std::string idStr = ctrl->Id;
+        if (idStr.compare("ColorSpacePrimaries") == 0) {
+            mInputColorPrimaries = gColorSpacePrimariesMap[ctrl->valueStr];
+        } else if (idStr.compare("ColorSpaceMatrix") == 0) {
+            mInputMatrixCoeff = gColorSpaceMatrixMap[ctrl->valueStr];
+        } else if (idStr.compare("ColorSpaceTransfer") == 0) {
+            mInputTransferChar = gColorSpaceTransferMap[ctrl->valueStr];
+        } else if (idStr.compare("ColorSpaceRangefer") == 0) {
+            mInputVideoRange = gColorSpaceRangeferMap[ctrl->valueStr];
+        }
+    }
+    LOGV("%s: ColorPrimaries: %d, MatrixCoeff: %d, TransferChar:%d, VideoRange:%d\n", __func__,
+            mInputColorPrimaries, mInputMatrixCoeff, mInputTransferChar, mInputVideoRange);
     return 0;
 }
 
