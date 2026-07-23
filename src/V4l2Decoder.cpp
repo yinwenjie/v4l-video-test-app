@@ -11,6 +11,7 @@
 #include <climits>
 
 #include "FFStreamParser.h"
+#include "Trace.h"
 #include "V4l2Decoder.h"
 
 #define MAX_COLOR_FMTS 7
@@ -31,22 +32,17 @@ int V4l2Decoder::init() {
     mDomain = V4L2_CODEC_TYPE_DECODER;
 
     ret = mV4l2Driver->Open(mDomain);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::init: Open failed");
     ret = mV4l2Driver->setCodecPixelFmt(INPUT_MPLANE, mCodecFmt);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::init: set input codec pixel format failed");
     ret = mV4l2Driver->setCodecPixelFmt(OUTPUT_MPLANE, mPixelFmt);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::init: set output pixel format failed");
     if (mMemoryType != V4L2_MEMORY_MMAP) {
         // Only try to open dma_heap when memory type is not set to V4L2_MEMORY_MMAP
         ret = mV4l2Driver->OpenDMAHeap("system");
         if (ret && (mMemoryType == V4L2_MEMORY_DMABUF)) {
             LOGE("Error: failed to open dma_heap while V4L2_MEMORY_DMABUF designated.\n");
+            PrintCurrentTrace("V4l2Decoder::init: OpenDMAHeap failed");
             return ret;
         } else if (ret && (mMemoryType == 0)) {
             setMemoryType("MMAP");
@@ -56,22 +52,14 @@ int V4l2Decoder::init() {
     }
 
     ret = mV4l2Driver->subscribeEvent(V4L2_EVENT_SOURCE_CHANGE);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::init: subscribe source change failed");
     ret = mV4l2Driver->subscribeEvent(V4L2_EVENT_EOS);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::init: subscribe EOS failed");
     ret = mV4l2Driver->createPollThread();
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::init: createPollThread failed");
     memset(&caps, 0, sizeof(caps));
     ret = mV4l2Driver->queryCapabilities(&caps);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::init: queryCapabilities failed");
 
     return 0;
 }
@@ -80,13 +68,9 @@ int V4l2Decoder::initFFStreamParser(std::string inputPath) {
     int ret = 0;
     mStreamParser = std::make_shared<FFStreamParser>(inputPath, mSessionId);
     ret = mStreamParser->init();
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::initFFStreamParser: init failed");
     ret = mStreamParser->loopPackets();
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::initFFStreamParser: loopPackets failed");
     return 0;
 }
 
@@ -114,16 +98,12 @@ int V4l2Decoder::configureInput() {
     memset(&fmt, 0, sizeof(fmt));
     fmt.type = INPUT_MPLANE;
     ret = mV4l2Driver->getFormat(&fmt);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::configureInput: getFormat failed");
 
     fmt.fmt.pix_mp.width = mWidth;
     fmt.fmt.pix_mp.height = mHeight;
     ret = mV4l2Driver->setFormat(&fmt);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::configureInput: setFormat failed");
 
     mStride = fmt.fmt.pix_mp.plane_fmt[0].bytesperline;
     mInputSize = fmt.fmt.pix_mp.plane_fmt[0].sizeimage;
@@ -151,9 +131,7 @@ int V4l2Decoder::configureInput() {
     reqBufs.memory = mMemoryType;
     reqBufs.count = mActualInputCount;
     ret = mV4l2Driver->reqBufs(&reqBufs);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::configureInput: reqBufs failed");
     mActualInputCount = reqBufs.count;
     LOGI("configureInput: %d input buffers got from reqBufs\n",
         mActualInputCount);
@@ -175,9 +153,7 @@ int V4l2Decoder::configureOutput() {
     memset(&fmt, 0, sizeof(fmt));
     fmt.type = OUTPUT_MPLANE;
     ret = mV4l2Driver->getFormat(&fmt);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::configureOutput: getFormat failed");
     fmt.fmt.pix_mp.width = mWidth;
     fmt.fmt.pix_mp.height = mHeight;
 
@@ -193,9 +169,7 @@ int V4l2Decoder::configureOutput() {
             __func__, mOutputVideoRange, mOutputColorPrimaries);
 
     ret = mV4l2Driver->setFormat(&fmt);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::configureOutput: setFormat failed");
     //mOBufWidth = fmt.fmt.pix_mp.width;
     mOBufHeight = fmt.fmt.pix_mp.height;
     mStride = fmt.fmt.pix_mp.plane_fmt[0].bytesperline;
@@ -209,9 +183,7 @@ int V4l2Decoder::configureOutput() {
     fsize.index = 0;
     fsize.pixel_format = mPixelFmt;
     ret = mV4l2Driver->enumFramesize(&fsize);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::configureOutput: enumFramesize failed");
 
     ctrl.id = V4L2_CID_MIN_BUFFERS_FOR_CAPTURE;
     ret = mV4l2Driver->getControl(&ctrl);
@@ -232,9 +204,7 @@ int V4l2Decoder::configureOutput() {
     reqBufs.memory = mMemoryType;
     reqBufs.count = mActualOutputCount;
     ret = mV4l2Driver->reqBufs(&reqBufs);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::configureOutput: reqBufs failed");
     mActualOutputCount = reqBufs.count;
     LOGI("%s: %d output buffers got from reqBufs\n", __func__,
         mActualOutputCount);
@@ -361,18 +331,12 @@ int V4l2Decoder::reconfigureOutput() {
         freeBuffers(OUTPUT_PORT);
 
         ret = configureOutput();
-        if (ret) {
-            return ret;
-        }
+        TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::reconfigureOutput: configureOutput failed");
 
         ret = allocateBuffers(OUTPUT_PORT);
-        if (ret) {
-            return ret;
-        }
+        TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::reconfigureOutput: allocate output buffers failed");
         ret = startOutput();
-        if (ret) {
-            return ret;
-        }
+        TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::reconfigureOutput: startOutput failed");
     }
     return 0;
 }
@@ -384,6 +348,7 @@ int V4l2Decoder::feedInputDataToV4l2Buffer(std::shared_ptr<v4l2_buffer> buf,
     auto itr = mInputBuffersPool.find(buf->index);
     if (itr == mInputBuffersPool.end()) {
         LOGE("Error: no DMA buffer found for buffer index: %d\n", buf->index);
+        PrintCurrentTrace("V4l2Decoder::feedInputDataToV4l2Buffer: no DMA buffer found");
         return -EINVAL;
     }
     auto& buffer = itr->second;
@@ -393,6 +358,7 @@ int V4l2Decoder::feedInputDataToV4l2Buffer(std::shared_ptr<v4l2_buffer> buf,
         MapBuf map(NULL, dmaBuf->mSize, PROT_READ | PROT_WRITE, MAP_SHARED, dmaBuf->mFd, 0);
         if (!map.isMapSucess()) {
             LOGE("Error: failed to mmap output buffer at index: %d\n", buf->index);
+            PrintCurrentTrace("V4l2Decoder::feedInputDataToV4l2Buffer: mmap input buffer failed");
             return -EINVAL;
         }
         void* bufAddr = map.getMappedAddr();
@@ -434,9 +400,7 @@ int V4l2Decoder::start() {
     memset(&decCmd, 0, sizeof(decCmd));
     decCmd.cmd = V4L2_DEC_CMD_START;
     ret = mV4l2Driver->decCommand(&decCmd);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::start failed");
     return 0;
 }
 
@@ -447,9 +411,7 @@ int V4l2Decoder::stop() {
     memset(&decCmd, 0, sizeof(decCmd));
     decCmd.cmd = V4L2_DEC_CMD_STOP;
     ret = mV4l2Driver->decCommand(&decCmd);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Decoder::stop failed");
     return 0;
 }
 
@@ -467,16 +429,19 @@ int V4l2Decoder::handleSeek(int seekTo) {
     int ret = stopInput();
     if (ret) {
         LOGE("Error: handle_seek stopInput failed\n");
+        PrintCurrentTrace("V4l2Decoder::handleSeek: stopInput failed");
         return ret;
     }
     ret = startInput();
     if (ret) {
         LOGE("Error: handle_seek startInput failed\n");
+        PrintCurrentTrace("V4l2Decoder::handleSeek: startInput failed");
         return ret;
     }
     ret = seekToFrame(seekTo);
     if (ret) {
         LOGE("Error: handle_seek StreamParser seekto failed\n");
+        PrintCurrentTrace("V4l2Decoder::handleSeek: seekToFrame failed");
         return ret;
     }
     return 0;
@@ -486,11 +451,13 @@ int V4l2Decoder::handleRandomSeek(int& seekPos) {
     int ret = stopInput();
     if (ret) {
         LOGE("Error: handle_seek stopInput failed\n");
+        PrintCurrentTrace("V4l2Decoder::handleRandomSeek: stopInput failed");
         return ret;
     }
     ret = startInput();
     if (ret) {
         LOGE("Error: handle_seek startInput failed\n");
+        PrintCurrentTrace("V4l2Decoder::handleRandomSeek: startInput failed");
         return ret;
     }
     seekPos = randomSeek();
@@ -595,12 +562,14 @@ int V4l2Decoder::queueBuffers(int maxFrameCnt) {
             output = getOutputBufferLocked();
             ret = setOutputBufferData(output);
             if (ret) {
+                PrintCurrentTrace("V4l2Decoder::queueBuffers: setOutputBufferData failed");
                 return ret;
             }
             usleep(1 * 1000);
             ret = queueBuffer(output);
             if (ret) {
                 LOGE("Error: %s: output failed\n", __func__);
+                PrintCurrentTrace("V4l2Decoder::queueBuffers: queue output buffer failed");
                 return ret;
             }
         }
@@ -614,6 +583,7 @@ int V4l2Decoder::queueBuffers(int maxFrameCnt) {
         ret = feedInputDataToV4l2Buffer(input, eosReached, frameCounter);
         if (ret) {
             LOGE("Error: feed input data failed.\n");
+            PrintCurrentTrace("V4l2Decoder::queueBuffers: feedInputDataToV4l2Buffer failed");
             return ret;
         }
         if (!isEndReached(eosReached, frameCounter)) {
@@ -623,6 +593,7 @@ int V4l2Decoder::queueBuffers(int maxFrameCnt) {
             ret = queueBuffer(input);
             if (ret) {
                 LOGE("Error: queueBuffer input failed.\n");
+                PrintCurrentTrace("V4l2Decoder::queueBuffers: queue input buffer failed");
                 return ret;
             }
         } else {
@@ -631,6 +602,7 @@ int V4l2Decoder::queueBuffers(int maxFrameCnt) {
                 setDrainPending(false);
                 ret = handleDrainEvent();
                 if (ret) {
+                    PrintCurrentTrace("V4l2Decoder::queueBuffers: handleDrainEvent failed");
                     return ret;
                 }
             } else {
@@ -647,6 +619,7 @@ int V4l2Decoder::queueBuffers(int maxFrameCnt) {
             setReconfigEventReceived(false);
             ret = configureAndStartOutput();
             if (ret) {
+                PrintCurrentTrace("V4l2Decoder::queueBuffers: configureAndStartOutput failed");
                 return ret;
             }
         } else if (isDrcLastFlagReceived()) {
@@ -655,6 +628,7 @@ int V4l2Decoder::queueBuffers(int maxFrameCnt) {
             ret = reconfigureOutput();
             if (ret) {
                 LOGE("Error: queueBuffers: reconfigureOutput failed.\n");
+                PrintCurrentTrace("V4l2Decoder::queueBuffers: reconfigureOutput failed");
                 return ret;
             }
             LOGW("%s: last flag for reconfig arrived\n", __func__);
@@ -669,6 +643,7 @@ int V4l2Decoder::queueBuffers(int maxFrameCnt) {
         ret = start();
         if (ret != 0) {
             LOGE("Error: queueBuffers: resume failed.\n");
+            PrintCurrentTrace("V4l2Decoder::queueBuffers: resume after drain failed");
             return ret;
         }
         return ret;
@@ -680,11 +655,13 @@ int V4l2Decoder::queueBuffers(int maxFrameCnt) {
         }
         ret = waitForCondition(100, 100, [&]() -> bool { return isFirstReconfigReceived(); });
         if (ret) {
+            PrintCurrentTrace("V4l2Decoder::queueBuffers: wait first reconfig before random seek failed");
             return ret;
         }
         ret = handleRandomSeek(randomSeekTo);
         if (ret < 0) {
             LOGE("Error: failed to handle random seek. Exit.");
+            PrintCurrentTrace("V4l2Decoder::queueBuffers: handleRandomSeek failed");
             return ret;
         }
         frameCounter = randomSeekTo;
@@ -713,6 +690,7 @@ int V4l2Decoder::queueBuffers(int maxFrameCnt) {
         }
         ret = waitForCondition(10, 5, [&]() -> bool { return isFirstReconfigReceived(); });
         if (ret) {
+            PrintCurrentTrace("V4l2Decoder::queueBuffers: wait first reconfig before seek failed");
             return ret;
         }
         handleSeek(seekTo);
@@ -745,6 +723,7 @@ int V4l2Decoder::queueBuffers(int maxFrameCnt) {
         // Handle Dynamic Commands
         ret = setDynamicCommands(frameCounter);
         if (ret) {
+            PrintCurrentTrace("V4l2Decoder::queueBuffers: setDynamicCommands failed");
             return ret;
         } else {
             updateSeekInfo();
@@ -752,18 +731,21 @@ int V4l2Decoder::queueBuffers(int maxFrameCnt) {
 
         ret = handleRandomSeekIfNeeded();
         if (ret) {
+            PrintCurrentTrace("V4l2Decoder::queueBuffers: handleRandomSeekIfNeeded failed");
             return ret;
         }
 
         /* handle seek scenario */
         ret = handleSeekIfNeeded();
         if (ret) {
+            PrintCurrentTrace("V4l2Decoder::queueBuffers: handleSeekIfNeeded failed");
             return ret;
         }
 
         if (isReconfigEventReceived()) {
             ret = handleReconfigEvent();
             if (ret) {
+                PrintCurrentTrace("V4l2Decoder::queueBuffers: handleReconfigEvent failed");
                 return ret;
             }
         }
@@ -771,6 +753,7 @@ int V4l2Decoder::queueBuffers(int maxFrameCnt) {
         if (isOutputPortStarted()) {
             ret = queueAvailableOutputBuffers();
             if (ret) {
+                PrintCurrentTrace("V4l2Decoder::queueBuffers: queueAvailableOutputBuffers failed");
                 return ret;
             }
             if (isDrainPending()) {
@@ -778,6 +761,7 @@ int V4l2Decoder::queueBuffers(int maxFrameCnt) {
                 setDrainSent(true);
                 ret = handleDrainEvent();
                 if (ret) {
+                    PrintCurrentTrace("V4l2Decoder::queueBuffers: handleDrainEvent after pending failed");
                     return ret;
                 }
             }
@@ -790,6 +774,7 @@ int V4l2Decoder::queueBuffers(int maxFrameCnt) {
             }
             ret = handleDrainLastEvent();
             if (ret) {
+                PrintCurrentTrace("V4l2Decoder::queueBuffers: handleDrainLastEvent failed");
                 return ret;
             }
             break;
@@ -798,6 +783,7 @@ int V4l2Decoder::queueBuffers(int maxFrameCnt) {
         if (!isInputAvailable()) {
             if (retry_count >= 100) {
                 LOGE("%s: wait for input buffer timeout(1s)\n", __func__);
+                PrintCurrentTrace("V4l2Decoder::queueBuffers: wait for input buffer timeout");
                 return -ETIMEDOUT;
             }
 
@@ -806,11 +792,13 @@ int V4l2Decoder::queueBuffers(int maxFrameCnt) {
                 usleep(10 * 1000);
                 continue;
             }
+            PrintCurrentTrace("V4l2Decoder::queueBuffers: input buffer unavailable");
             return -ENOMEM;
         }
 
         ret = prepareAndQueueInputBuffer();
         if (ret) {
+            PrintCurrentTrace("V4l2Decoder::queueBuffers: prepareAndQueueInputBuffer failed");
             return ret;
         }
 
@@ -840,6 +828,7 @@ int V4l2Decoder::writeDumpDataToFile(v4l2_buffer* buf) {
         map = std::make_unique<MapBuf>(nullptr, buf->m.planes[0].length, PROT_READ, MAP_SHARED, buf->m.planes[0].m.fd, 0);
         if (!map->isMapSucess()) {
             LOGE("Error: failed to mmap output buffer\n");
+            PrintCurrentTrace("V4l2Decoder::writeDumpDataToFile: mmap output buffer failed");
             return -EINVAL;
         }
         pBuffer = (std::uint8_t*)map->getMappedAddr();
@@ -847,6 +836,7 @@ int V4l2Decoder::writeDumpDataToFile(v4l2_buffer* buf) {
         auto itr = mOutputBuffersPool.find(buf->index);
         if (itr == mOutputBuffersPool.end()) {
             LOGE("Error: no mmap buffer found for buffer index: %d\n", buf->index);
+            PrintCurrentTrace("V4l2Decoder::writeDumpDataToFile: no mmap output buffer found");
             return -EINVAL;
         }
         auto& buffer = itr->second;
@@ -904,6 +894,7 @@ int V4l2DecoderCB::onBufferDone(v4l2_buffer* buffer) {
         auto itr = std::find_if(pendingInputBufs.begin(), pendingInputBufs.end(),
                                 [&buf](auto in) -> bool { return in->index == buf->index; });
         if (itr == pendingInputBufs.end()) {
+            PrintCurrentTrace("V4l2DecoderCB::onBufferDone: input buffer not pending");
             return -EINVAL;
         }
 
@@ -919,6 +910,7 @@ int V4l2DecoderCB::onBufferDone(v4l2_buffer* buffer) {
         auto itr = std::find_if(pendingOutputBufs.begin(), pendingOutputBufs.end(),
                                 [&buf](auto in) -> bool { return in->index == buf->index; });
         if (itr == pendingOutputBufs.end()) {
+            PrintCurrentTrace("V4l2DecoderCB::onBufferDone: output buffer not pending");
             return -EINVAL;
         }
 
@@ -942,7 +934,8 @@ int V4l2DecoderCB::onBufferDone(v4l2_buffer* buffer) {
         }
 
         if (mDec->mOutputDumpFile && buffer->m.planes[0].bytesused) {
-            mDec->writeDumpDataToFile(buffer);
+            ret = mDec->writeDumpDataToFile(buffer);
+            TRACE_RETURN_IF_ERROR(ret, "V4l2DecoderCB::onBufferDone: writeDumpDataToFile failed");
         }
 
         if (buffer->flags & V4L2_BUF_FLAG_LAST) {
@@ -967,6 +960,7 @@ int V4l2DecoderCB::onEventDone(v4l2_event* event) {
     LOGV("V4l2DecoderCB::onEventDone()\n");
     if (event == nullptr) {
         LOGE("V4l2DecoderCB::onEventDone: error, null event!\n");
+        PrintCurrentTrace("V4l2DecoderCB::onEventDone: null event");
         return -EINVAL;
     } else if (event->type == V4L2_EVENT_SOURCE_CHANGE &&
                event->u.src_change.changes == V4L2_EVENT_SRC_CH_RESOLUTION) {

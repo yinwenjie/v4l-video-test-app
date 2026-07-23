@@ -10,6 +10,7 @@
 #include <fstream>
 
 #include "ConfigParser.h"
+#include "Trace.h"
 #include "V4l2Codec.h"
 
 #ifndef _LINUX_
@@ -59,6 +60,7 @@ std::unordered_set<std::string> MandatoryCtrls = {
 #define CHECK_TRUE(cond, msg)       \
     if ((cond) != true) {           \
         printf("Error: %s\n", msg); \
+        PrintCurrentTrace(msg);     \
         return -EINVAL;             \
     }
 
@@ -155,6 +157,7 @@ static int getConfigs(Json::Value allConfigs, ConfigureStruct& config, std::stri
     if (Configs.compare("StaticControls") == 0) {
         if (count < MandatoryCtrls.size()) {
             printf("Mandatory controls not found!!!\n");
+            PrintCurrentTrace("ConfigParser::getConfigs: mandatory controls not found");
             return -EINVAL;
         }
     }
@@ -164,6 +167,7 @@ static int getConfigs(Json::Value allConfigs, ConfigureStruct& config, std::stri
 
 static int readFileToString(const std::string& path, std::string* content) {
     if (!content) {
+        PrintCurrentTrace("ConfigParser::readFileToString: null content");
         return -EINVAL;
     }
     if (std::ifstream fs{path, std::ios::in | std::ios::binary | std::ios::ate /* seek to end */}) {
@@ -181,6 +185,7 @@ static int readFileToString(const std::string& path, std::string* content) {
         } while (!fs.eof() && fs.gcount() == kCacheSize);
     } else {
         printf("Failed to open file (%s) for reading", path.c_str());
+        PrintCurrentTrace("ConfigParser::readFileToString: open file failed");
         return -EINVAL;
     }
 
@@ -202,17 +207,20 @@ int parseJsonConfigs(
     ret = readFileToString(path, &jsonString);
     if (ret) {
         printf("Error: Read configure file failed - %s\n", path.c_str());
+        PrintCurrentTrace("ConfigParser::parseJsonConfigs: read configure file failed");
         return -EINVAL;
     }
 
     ret = reader->parse(&*jsonString.begin(), &*jsonString.end(), &allConfigs, &errorMessage);
     if (!ret) {
         printf("Error: Parse configuration failed - %s\n", errorMessage.c_str());
+        PrintCurrentTrace("ConfigParser::parseJsonConfigs: parse configuration failed");
         return -EINVAL;
     }
 
     if (allConfigs.empty()) {
         printf("Error: Check config not empty\n");
+        PrintCurrentTrace("ConfigParser::parseJsonConfigs: empty config");
         return -EINVAL;
     }
 
@@ -257,6 +265,7 @@ int parseJsonConfigs(
         ret = getConfigs(testConfig, config, "StaticControls");
         if (ret) {
             printf("Static configs are mandatory for Encoder!\n");
+            PrintCurrentTrace("ConfigParser::parseJsonConfigs: static configs failed");
             return ret;
         }
 

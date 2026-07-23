@@ -11,6 +11,7 @@
 #include <linux/dma-buf.h>
 
 #include "FFYUVParser.h"
+#include "Trace.h"
 #include "V4l2Encoder.h"
 
 #define ALIGN(num, to) (((num) + (to - 1)) & (~(to - 1)))
@@ -46,22 +47,17 @@ int V4l2Encoder::init() {
     mDomain = V4L2_CODEC_TYPE_ENCODER;
 
     ret = mV4l2Driver->Open(mDomain);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Encoder::init: Open failed");
     ret = mV4l2Driver->setCodecPixelFmt(OUTPUT_MPLANE, mCodecFmt);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Encoder::init: set output codec pixel format failed");
     ret = mV4l2Driver->setCodecPixelFmt(INPUT_MPLANE, mPixelFmt);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Encoder::init: set input pixel format failed");
     if (mMemoryType != V4L2_MEMORY_MMAP) {
         // Only try to open dma_heap when memory type is not set to V4L2_MEMORY_MMAP
         ret = mV4l2Driver->OpenDMAHeap("system");
         if (ret && (mMemoryType == V4L2_MEMORY_DMABUF)) {
             LOGE("Error: failed to open dma_heap while V4L2_MEMORY_DMABUF designated.\n");
+            PrintCurrentTrace("V4l2Encoder::init: OpenDMAHeap failed");
             return ret;
         } else if (ret && (mMemoryType == 0)) {
             setMemoryType("MMAP");
@@ -70,14 +66,10 @@ int V4l2Encoder::init() {
         }
     }
     ret = mV4l2Driver->createPollThread();
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Encoder::init: createPollThread failed");
     memset(&caps, 0, sizeof(caps));
     ret = mV4l2Driver->queryCapabilities(&caps);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Encoder::init: queryCapabilities failed");
 
     return 0;
 }
@@ -95,9 +87,11 @@ int V4l2Encoder::initFFYUVParser(std::string inputPath, int width, int height, s
     mYUVParser = std::make_shared<FFYUVParser>(inputPath, resolution, pixfmt,
                                                mSessionId);
     if (mYUVParser == nullptr) {
+        PrintCurrentTrace("V4l2Encoder::initFFYUVParser: make_shared failed");
         return -1;
     }
     if (mYUVParser->init() < 0) {
+        PrintCurrentTrace("V4l2Encoder::initFFYUVParser: parser init failed");
         return -1;
     }
     return 0;
@@ -140,6 +134,7 @@ int V4l2Encoder::queryControlsAVC(uint32_t level) {
         mStaticControls.remove_if([](auto ctrlInfo) {
             return ctrlInfo->id == V4L2_CID_MPEG_VIDEO_H264_LEVEL;
         });
+        PrintCurrentTrace("V4l2Encoder::queryControlsAVC: query AVC level failed");
         return -1;
     }
 
@@ -160,6 +155,7 @@ int V4l2Encoder::queryControlsAVC(uint32_t level) {
         }
     }
 
+    PrintCurrentTrace("V4l2Encoder::queryControlsAVC: requested level not supported");
     return -1;
 }
 
@@ -178,6 +174,7 @@ int V4l2Encoder::queryControlsHEVC(uint32_t level, uint32_t tier) {
         mStaticControls.remove_if([](auto ctrlInfo){
             return ctrlInfo->id == V4L2_CID_MPEG_VIDEO_HEVC_TIER;
         });
+        PrintCurrentTrace("V4l2Encoder::queryControlsHEVC: query HEVC tier failed");
         return -1;
     }
 
@@ -192,6 +189,7 @@ int V4l2Encoder::queryControlsHEVC(uint32_t level, uint32_t tier) {
         mStaticControls.remove_if([](auto ctrlInfo){
             return ctrlInfo->id == V4L2_CID_MPEG_VIDEO_HEVC_LEVEL;
         });
+        PrintCurrentTrace("V4l2Encoder::queryControlsHEVC: query HEVC level failed");
         return -1;
     }
 
@@ -232,6 +230,7 @@ int V4l2Encoder::queryControlsHEVC(uint32_t level, uint32_t tier) {
         return 0;
     }
 
+    PrintCurrentTrace("V4l2Encoder::queryControlsHEVC: requested level/tier not supported");
     return -1;
 }
 
@@ -255,9 +254,7 @@ int V4l2Encoder::configureInput() {
     fsize.index = 0;
     fsize.pixel_format = mPixelFmt;
     ret = mV4l2Driver->enumFramesize(&fsize);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Encoder::configureInput: enumFramesize failed");
 
     /* query driver recommended frameintervals */
     memset(&fival, 0, sizeof(fival));
@@ -266,16 +263,12 @@ int V4l2Encoder::configureInput() {
     fival.width = mWidth;
     fival.height = mHeight;
     ret = mV4l2Driver->enumFrameInterval(&fival);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Encoder::configureInput: enumFrameInterval failed");
 
     memset(&fmt, 0, sizeof(fmt));
     fmt.type = INPUT_MPLANE;
     ret = mV4l2Driver->getFormat(&fmt);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Encoder::configureInput: getFormat failed");
     fmt.fmt.pix_mp.width = mWidth;
     fmt.fmt.pix_mp.height = mHeight;
     fmt.fmt.pix_mp.colorspace = mInputColorPrimaries;
@@ -283,9 +276,7 @@ int V4l2Encoder::configureInput() {
     fmt.fmt.pix_mp.xfer_func = mInputTransferChar;
     fmt.fmt.pix_mp.quantization = mInputVideoRange;
     ret = mV4l2Driver->setFormat(&fmt);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Encoder::configureInput: setFormat failed");
     mInputColorPrimaries = fmt.fmt.pix_mp.colorspace;
     mInputMatrixCoeff = fmt.fmt.pix_mp.ycbcr_enc;
     mInputTransferChar = fmt.fmt.pix_mp.xfer_func;
@@ -303,6 +294,7 @@ int V4l2Encoder::configureInput() {
         sel.r.width = mWidth;
         sel.r.height = mHeight;
         if (mV4l2Driver->setSelection(&sel)) {
+            PrintCurrentTrace("V4l2Encoder::configureInput: setSelection failed");
             return -EINVAL;
         }
         mCropLeft = sel.r.left;
@@ -335,9 +327,7 @@ int V4l2Encoder::configureInput() {
     reqBufs.memory = mMemoryType;
     reqBufs.count = mActualInputCount;
     ret = mV4l2Driver->reqBufs(&reqBufs);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Encoder::configureInput: reqBufs failed");
     mActualInputCount = reqBufs.count;
     LOGI("%s: %d input buffers got from reqBufs\n", __func__, mActualInputCount);
 
@@ -354,9 +344,7 @@ int V4l2Encoder::configureOutput() {
     memset(&fmt, 0, sizeof(fmt));
     fmt.type = OUTPUT_MPLANE;
     ret = mV4l2Driver->getFormat(&fmt);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Encoder::configureOutput: getFormat failed");
     mOutputSize = fmt.fmt.pix_mp.plane_fmt[0].sizeimage;
 
 
@@ -364,9 +352,7 @@ int V4l2Encoder::configureOutput() {
         fmt.fmt.pix_mp.width = mDownScaleWidth;
         fmt.fmt.pix_mp.height = mDownScaleHeight;
         ret = mV4l2Driver->setFormat(&fmt);
-        if (ret) {
-            return ret;
-        }
+        TRACE_RETURN_IF_ERROR(ret, "V4l2Encoder::configureOutput: set downscale format failed");
     }
 
     ctrl.id = V4L2_CID_MIN_BUFFERS_FOR_CAPTURE;
@@ -391,9 +377,7 @@ int V4l2Encoder::configureOutput() {
     reqBufs.memory = mMemoryType;
     reqBufs.count = mActualOutputCount;
     ret = mV4l2Driver->reqBufs(&reqBufs);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Encoder::configureOutput: reqBufs failed");
     mActualOutputCount = reqBufs.count;
     LOGI("%s: %d output buffers got from reqBufs\n", __func__,
         mActualOutputCount);
@@ -409,6 +393,7 @@ int V4l2Encoder::feedInputDataToV4l2Buffer(std::shared_ptr<v4l2_buffer> buf,
     auto itr = mInputBuffersPool.find(buf->index);
     if (itr == mInputBuffersPool.end()) {
         LOGE("Error: no DMA buffer found for buffer index: %d\n", buf->index);
+        PrintCurrentTrace("V4l2Encoder::feedInputDataToV4l2Buffer: no DMA buffer found");
         return -EINVAL;
     }
     auto& buffer = itr->second;
@@ -419,6 +404,7 @@ int V4l2Encoder::feedInputDataToV4l2Buffer(std::shared_ptr<v4l2_buffer> buf,
         MapBuf map(NULL, dmaBuf->mSize, PROT_READ | PROT_WRITE, MAP_SHARED, dmaBuf->mFd, 0);
         if (!map.isMapSucess()) {
             LOGE("Error: failed to mmap output buffer\n");
+            PrintCurrentTrace("V4l2Encoder::feedInputDataToV4l2Buffer: mmap input buffer failed");
             return -EINVAL;
         }
         bufAddr = map.getMappedAddr();
@@ -474,9 +460,7 @@ int V4l2Encoder::stop() {
     memset(&encCmd, 0, sizeof(encCmd));
     encCmd.cmd = V4L2_ENC_CMD_STOP;
     ret = mV4l2Driver->encCommand(&encCmd);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Encoder::stop failed");
     return 0;
 }
 
@@ -485,9 +469,7 @@ int V4l2Encoder::start() {
     memset(&encCmd, 0, sizeof(encCmd));
     encCmd.cmd = V4L2_ENC_CMD_START;
     int ret = mV4l2Driver->encCommand(&encCmd);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Encoder::start failed");
     return 0;
 }
 
@@ -500,14 +482,13 @@ int V4l2Encoder::setOperatingRate(unsigned int numer, unsigned int denom) {
     sParm.parm.output.timeperframe.numerator = numer;
     sParm.parm.output.timeperframe.denominator = denom;
     ret = mV4l2Driver->setParm(&sParm);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Encoder::setOperatingRate failed");
     return 0;
 }
 
 int V4l2Encoder::setFrameRate(unsigned int numer, unsigned int denom) {
     if (denom == 0) {
+        PrintCurrentTrace("V4l2Encoder::setFrameRate: denominator is zero");
         return -1;
     }
     mFrameRate = (long)denom / (long)numer;
@@ -519,9 +500,7 @@ int V4l2Encoder::setFrameRate(unsigned int numer, unsigned int denom) {
     sParm.parm.capture.timeperframe.numerator = numer;
     sParm.parm.capture.timeperframe.denominator = denom;
     int ret = mV4l2Driver->setParm(&sParm);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "V4l2Encoder::setFrameRate failed");
     return 0;
 }
 
@@ -536,6 +515,7 @@ int V4l2Encoder::queueBuffers(int maxFrameCnt) {
         ret = start();
         if (ret != 0) {
             LOGE("Error: queueBuffers: resume failed.\n");
+            PrintCurrentTrace("V4l2Encoder::queueBuffers: resume after drain failed");
             return ret;
         }
         return ret;
@@ -546,6 +526,7 @@ int V4l2Encoder::queueBuffers(int maxFrameCnt) {
         ret = stop();
         if (ret) {
             LOGE("Error: queueBuffers: draining failed\n");
+            PrintCurrentTrace("V4l2Encoder::queueBuffers: drain stop failed");
             return ret;
         }
         return ret;
@@ -591,6 +572,7 @@ int V4l2Encoder::queueBuffers(int maxFrameCnt) {
         ret = feedInputDataToV4l2Buffer(input, eosReached, frameCounter);
         if (ret) {
             LOGE("Error: feed input data failed.\n");
+            PrintCurrentTrace("V4l2Encoder::queueBuffers: feedInputDataToV4l2Buffer failed");
             return ret;
         }
         if (!isEndReached(eosReached, frameCounter)) {
@@ -598,12 +580,14 @@ int V4l2Encoder::queueBuffers(int maxFrameCnt) {
             ret = queueBuffer(input);
             if (ret) {
                 LOGE("Error: queueBuffer input failed.\n");
+                PrintCurrentTrace("V4l2Encoder::queueBuffers: queue input buffer failed");
                 return ret;
             }
         } else {
             setDrainSent(true);
             ret = handleDrainEvent();
             if (ret) {
+                PrintCurrentTrace("V4l2Encoder::queueBuffers: handleDrainEvent failed");
                 return ret;
             }
         }
@@ -619,6 +603,7 @@ int V4l2Encoder::queueBuffers(int maxFrameCnt) {
             ret = setOutputBufferData(output);
             if (ret) {
                 LOGE("Error: failed to set output buffer data: %d\n", ret);
+                PrintCurrentTrace("V4l2Encoder::queueBuffers: setOutputBufferData failed");
                 return ret;
             }
             if (!isInputPortStarted()) {
@@ -627,6 +612,7 @@ int V4l2Encoder::queueBuffers(int maxFrameCnt) {
             ret = queueBuffer(output);
             if (ret) {
                 LOGE("Error: %s: output failed\n", __func__);
+                PrintCurrentTrace("V4l2Encoder::queueBuffers: queue output buffer failed");
                 return ret;
             }
         }
@@ -637,6 +623,7 @@ int V4l2Encoder::queueBuffers(int maxFrameCnt) {
         if (isOutputPortStarted()) {
             ret = queueAvailableOutputBuffers();
             if (ret) {
+                PrintCurrentTrace("V4l2Encoder::queueBuffers: queueAvailableOutputBuffers failed");
                 return ret;
             }
         }
@@ -647,6 +634,7 @@ int V4l2Encoder::queueBuffers(int maxFrameCnt) {
             }
             ret = handleDrainLastEvent();
             if (ret) {
+                PrintCurrentTrace("V4l2Encoder::queueBuffers: handleDrainLastEvent failed");
                 return ret;
             }
             break;
@@ -655,18 +643,21 @@ int V4l2Encoder::queueBuffers(int maxFrameCnt) {
         // Handle Dynamic Commands
         ret = setDynamicCommands(frameCounter);
         if (ret) {
+            PrintCurrentTrace("V4l2Encoder::queueBuffers: setDynamicCommands failed");
             return ret;
         }
 
         // Handle Dynamic Controls
         ret = setDynamicControls(frameCounter);
         if (ret) {
+            PrintCurrentTrace("V4l2Encoder::queueBuffers: setDynamicControls failed");
             return ret;
         }
 
         if (!isInputAvailable()) {
             if (retry_count >= 100) {
                 LOGE("%s: wait for input buffer timeout(1s)\n", __func__);
+                PrintCurrentTrace("V4l2Encoder::queueBuffers: wait for input buffer timeout");
                 return -ETIMEDOUT;
             }
             if (needWaitForInput()) {
@@ -674,11 +665,13 @@ int V4l2Encoder::queueBuffers(int maxFrameCnt) {
                 usleep(10 * 1000);
                 continue;
             }
+            PrintCurrentTrace("V4l2Encoder::queueBuffers: input buffer unavailable");
             return -ENOMEM;
         }
 
         ret = prepareAndQueueInputBuffer();
         if (ret) {
+            PrintCurrentTrace("V4l2Encoder::queueBuffers: prepareAndQueueInputBuffer failed");
             return ret;
         }
         LOGD("%s: %u frames queued.\n", __func__, frameCounter);
@@ -739,6 +732,7 @@ int V4l2Encoder::writeDumpDataToFile(v4l2_buffer* buf) {
         map = std::make_unique<MapBuf>(nullptr, buf->m.planes[0].length, PROT_READ, MAP_SHARED, buf->m.planes[0].m.fd, 0);
         if (!map->isMapSucess()) {
             LOGE("Error: failed to mmap output buffer\n");
+            PrintCurrentTrace("V4l2Encoder::writeDumpDataToFile: mmap output buffer failed");
             return -EINVAL;
         }
         pBuffer = (std::uint8_t*)map->getMappedAddr();
@@ -746,6 +740,7 @@ int V4l2Encoder::writeDumpDataToFile(v4l2_buffer* buf) {
         auto itr = mOutputBuffersPool.find(buf->index);
         if (itr == mInputBuffersPool.end()) {
             LOGE("Error: no mmap buffer found for buffer index: %d\n", buf->index);
+            PrintCurrentTrace("V4l2Encoder::writeDumpDataToFile: no mmap output buffer found");
             return -EINVAL;
         }
         auto& buffer = itr->second;
@@ -760,6 +755,7 @@ int V4l2Encoder::writeDumpDataToFile(v4l2_buffer* buf) {
     if (isNALEncodingEnabled()) {
         ret = replaceNalSizeWAndWrite(pBuffer, buf->m.planes[0].bytesused);
         if (ret != 0) {
+            PrintCurrentTrace("V4l2Encoder::writeDumpDataToFile: replaceNalSizeWAndWrite failed");
             return ret;
         }
         return 0;
@@ -797,6 +793,7 @@ int V4l2EncoderCB::onBufferDone(v4l2_buffer* buffer) {
         auto itr = std::find_if(pendingInputBufs.begin(), pendingInputBufs.end(),
                                 [&buf](auto in) -> bool { return in->index == buf->index; });
         if (itr == pendingInputBufs.end()) {
+            PrintCurrentTrace("V4l2EncoderCB::onBufferDone: input buffer not pending");
             return -EINVAL;
         }
 
@@ -812,6 +809,7 @@ int V4l2EncoderCB::onBufferDone(v4l2_buffer* buffer) {
         auto itr = std::find_if(pendingOutputBufs.begin(), pendingOutputBufs.end(),
                                 [&buf](auto in) -> bool { return in->index == buf->index; });
         if (itr == pendingOutputBufs.end()) {
+            PrintCurrentTrace("V4l2EncoderCB::onBufferDone: output buffer not pending");
             return -EINVAL;
         }
 
@@ -833,7 +831,8 @@ int V4l2EncoderCB::onBufferDone(v4l2_buffer* buffer) {
             return ret;
         }
         if (mEnc->mOutputDumpFile && buffer->m.planes[0].bytesused) {
-            mEnc->writeDumpDataToFile(buffer);
+            ret = mEnc->writeDumpDataToFile(buffer);
+            TRACE_RETURN_IF_ERROR(ret, "V4l2EncoderCB::onBufferDone: writeDumpDataToFile failed");
         }
         if (buffer->flags & V4L2_BUF_FLAG_LAST) {
             buffer->flags &= ~V4L2_BUF_FLAG_LAST;

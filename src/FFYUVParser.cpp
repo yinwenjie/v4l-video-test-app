@@ -11,6 +11,7 @@
 #include <string>
 
 #include "FFYUVParser.h"
+#include "Trace.h"
 #include "UBWC_Utils.h"
 
 #define ALIGN(num, to) (((num) + (to - 1)) & (~(to - 1)))
@@ -38,6 +39,7 @@ int FFYUVParser::init() {
     std::transform(mPixelFmt.begin(), mPixelFmt.end(), mPixelFmt.begin(),
                    [](unsigned char c) { return std::tolower(c); });
     if (av_parse_video_size(&mFrameWidth, &mFrameHeight, mVideoSize.c_str()) < 0) {
+        PrintCurrentTrace("FFYUVParser::init: invalid video size");
         return -EINVAL;
     }
 
@@ -46,6 +48,7 @@ int FFYUVParser::init() {
         if (!mInputFile) {
             std::cerr << "[" << mSessionId << "]: Error: Open input file "
                       << mInputPath << " failed!\n";
+            PrintCurrentTrace("FFYUVParser::init: open compressed input file failed");
             return -EINVAL;
         }
         std::cout << "[" << mSessionId
@@ -58,6 +61,7 @@ int FFYUVParser::init() {
         if (ret) {
             std::cerr << "[" << mSessionId << "]: Error: Open input file failed"
                       << std::endl;
+            PrintCurrentTrace("FFYUVParser::init: avformat_open_input failed");
             return ret;
         }
 
@@ -66,6 +70,7 @@ int FFYUVParser::init() {
             std::cerr << "[" << mSessionId
                       << "]: Error: Cannot find stream information"
                       << std::endl;
+            PrintCurrentTrace("FFYUVParser::init: avformat_find_stream_info failed");
             return ret;
         }
 
@@ -75,6 +80,7 @@ int FFYUVParser::init() {
         if (!mPkt) {
             std::cerr << "[" << mSessionId
                       << "]: Error: cannot allocate AVPacket" << std::endl;
+            PrintCurrentTrace("FFYUVParser::init: av_packet_alloc failed");
             return -ENOMEM;
         }
     }

@@ -19,6 +19,7 @@
 #include <sys/stat.h>
 
 #include "V4l2Codec.h"
+#include "Trace.h"
 #include "V4l2Driver.h"
 
 #define MAX_VID_DEV_CNT 64
@@ -204,7 +205,23 @@ V4l2Driver::V4l2Driver(std::string sessionId)
       mPollThreadExit(false),
       mSessionId(sessionId) {}
 
-V4l2Driver::~V4l2Driver() {}
+V4l2Driver::~V4l2Driver() {
+    if (mPollThread != nullptr && mPollThread->joinable()) {
+        mPollThreadExit = true;
+        {
+            std::unique_lock<std::mutex> lock(mPollThreadLock);
+            mPollThreadPaused = false;
+        }
+        mPauser.notify_one();
+
+        if (mPollThread->get_id() == std::this_thread::get_id()) {
+            mPollThread->detach();
+        } else {
+            mPollThread->join();
+        }
+    }
+    mPollThread = nullptr;
+}
 
 std::string V4l2Driver::id() {
     return mSessionId;
@@ -217,6 +234,7 @@ int V4l2Driver::Open(int domain) {
 
     if (domain != V4L2_CODEC_TYPE_DECODER && domain != V4L2_CODEC_TYPE_ENCODER) {
         LOGE("this domain(%d) is not for decoder and encoder\n", domain);
+        PrintCurrentTrace("V4l2Driver::Open: invalid domain");
         return -EINVAL;
     }
 
@@ -225,6 +243,7 @@ int V4l2Driver::Open(int domain) {
 
         ret = snprintf(dev_video, sizeof(dev_video), "/dev/video%d", idx);
         if (ret <= 0) {
+            PrintCurrentTrace("V4l2Driver::Open: snprintf video device path failed");
             return ret;
         }
 
@@ -253,6 +272,7 @@ int V4l2Driver::Open(int domain) {
         LOGE("Failed to open video device for %s (%s)\n",
             domain == V4L2_CODEC_TYPE_DECODER ? "decoder" : "encoder",
             strerror(errno));
+        PrintCurrentTrace("V4l2Driver::Open: failed to find matching video device");
         return -EINVAL;
     }
 
@@ -364,6 +384,7 @@ int V4l2Driver::subscribeEvent(unsigned int event_type) {
     ret = ioctl(mFd, VIDIOC_SUBSCRIBE_EVENT, &event);
     if (ret) {
         LOGE("subscribeEvent: error %d\n", ret);
+        PrintCurrentTrace("V4l2Driver::subscribeEvent failed");
         return ret;
     }
     return 0;
@@ -413,6 +434,7 @@ int V4l2Driver::AllocDMABuffer(uint64_t size, int* fd) {
     ret = ioctl(mHeapFd, DMA_HEAP_IOCTL_ALLOC, &alloc);
     if (ret < 0) {
         std::cerr << "Error: alloc heap buf failed." << std::endl;
+        PrintCurrentTrace("V4l2Driver::AllocDMABuffer failed");
         return ret;
     }
     *fd = alloc.fd;
@@ -425,6 +447,7 @@ int V4l2Driver::AllocMMAPBuffer(std::shared_ptr<MMAPBuffer> mmapBuf,
     int ret = ioctl(mFd, VIDIOC_QUERYBUF, buf.get());
     if (ret) {
         LOGE("Error: VIDIOC_QUERYBUF failed while allocating mmap buf.\n");
+        PrintCurrentTrace("V4l2Driver::AllocMMAPBuffer: VIDIOC_QUERYBUF failed");
         return ret;
     }
 
@@ -437,6 +460,7 @@ int V4l2Driver::AllocMMAPBuffer(std::shared_ptr<MMAPBuffer> mmapBuf,
     ret = ioctl(mFd, VIDIOC_EXPBUF, &expbuf);
     if (ret < 0) {
         LOGE("Error: VIDIOC_EXPBUF failed for buffer index %d\n", buf->index);
+        PrintCurrentTrace("V4l2Driver::AllocMMAPBuffer: VIDIOC_EXPBUF failed");
         return ret;
     }
 
@@ -445,12 +469,14 @@ int V4l2Driver::AllocMMAPBuffer(std::shared_ptr<MMAPBuffer> mmapBuf,
 
     if (expbuf.fd <= 0) {
         LOGE("Error: Invalid dma_buf fd: %d\n", expbuf.fd);
+        PrintCurrentTrace("V4l2Driver::AllocMMAPBuffer: invalid dma_buf fd");
         return -EINVAL;
     }
 
     if (buf->m.planes[0].length == 0) {
         LOGE("Error: Invalid buffer length: 0\n");
         close(expbuf.fd);
+        PrintCurrentTrace("V4l2Driver::AllocMMAPBuffer: invalid buffer length");
         return -EINVAL;
     }
 
@@ -460,6 +486,7 @@ int V4l2Driver::AllocMMAPBuffer(std::shared_ptr<MMAPBuffer> mmapBuf,
         LOGE("Error: fstat failed on dma_buf fd %d. Error: %d (%s)\n",
              expbuf.fd, stat_errno, strerror(stat_errno));
         close(expbuf.fd);
+        PrintCurrentTrace("V4l2Driver::AllocMMAPBuffer: fstat failed");
         return -stat_errno;
     }
 
@@ -482,6 +509,7 @@ int V4l2Driver::AllocMMAPBuffer(std::shared_ptr<MMAPBuffer> mmapBuf,
                  (unsigned int)buf->m.planes[0].length, (long long)buf_stat.st_size);
         }
 
+        PrintCurrentTrace("V4l2Driver::AllocMMAPBuffer: mmap failed");
         return -saved_errno;
     }
 
@@ -606,6 +634,7 @@ int V4l2Driver::createPollThread() {
     mPollThread = std::make_shared<std::thread>(ThreadFunc, std::ref(*this));
     if (!mPollThread) {
         LOGE("poll thread create failed\n");
+        PrintCurrentTrace("V4l2Driver::createPollThread failed");
         return -EINVAL;
     } else {
         int count = 0;
@@ -619,6 +648,7 @@ int V4l2Driver::createPollThread() {
         }
         if (!mThreadRunning) {
             LOGE("poll thread not running\n");
+            PrintCurrentTrace("V4l2Driver::createPollThread: poll thread not running");
             return -EINVAL;
         }
     }
@@ -629,6 +659,7 @@ int V4l2Driver::createPollThread() {
 int V4l2Driver::pausePollThread() {
     if (!mPollThread || mPollThreadExit) {
         LOGE("pausePollThread: invalid poll thread. exit %d\n", mPollThreadExit);
+        PrintCurrentTrace("V4l2Driver::pausePollThread: invalid poll thread");
         return -EINVAL;
     }
     std::unique_lock<std::mutex> lock(mPollThreadLock);
@@ -640,6 +671,7 @@ int V4l2Driver::resumePollThread() {
     if (!mPollThread || mPollThreadExit) {
         LOGE("resumePollThread: invalid poll thread. exit %d\n",
             mPollThreadExit);
+        PrintCurrentTrace("V4l2Driver::resumePollThread: invalid poll thread");
         return -EINVAL;
     }
     std::unique_lock<std::mutex> lock(mPollThreadLock);
@@ -651,6 +683,7 @@ int V4l2Driver::resumePollThread() {
 int V4l2Driver::stopPollThread() {
     if (!mPollThread || mPollThreadExit) {
         LOGE("stopPollThread: invalid poll thread. exit %d\n", mPollThreadExit);
+        PrintCurrentTrace("V4l2Driver::stopPollThread: invalid poll thread");
         return -EINVAL;
     }
     mPollThreadExit = true;
@@ -668,6 +701,7 @@ int V4l2Driver::streamOn(int port) {
     int ret = ioctl(mFd, VIDIOC_STREAMON, &port);
     if (ret) {
         LOGE("streamon failed for port %d\n", port);
+        PrintCurrentTrace("V4l2Driver::streamOn failed");
         return -EINVAL;
     }
     return 0;
@@ -687,6 +721,7 @@ int V4l2Driver::getFormat(v4l2_format* fmt) {
     int ret = ioctl(mFd, VIDIOC_G_FMT, fmt);
     if (ret) {
         LOGE("getFormat failed for type %d\n", fmt->type);
+        PrintCurrentTrace("V4l2Driver::getFormat failed");
         return -EINVAL;
     }
     LOGD("getFormat: type %d, [wxh] %dx%d, fmt %#x, size %d\n", fmt->type,
@@ -718,6 +753,7 @@ int V4l2Driver::setCodecPixelFmt(uint32_t planeType, uint32_t codecPixFmt) {
     }
     if (!found) {
         LOGE("client format %#x not supported\n", codecPixFmt);
+        PrintCurrentTrace("V4l2Driver::setCodecPixelFmt: format not supported");
         return -EINVAL;
     }
 
@@ -726,6 +762,7 @@ int V4l2Driver::setCodecPixelFmt(uint32_t planeType, uint32_t codecPixFmt) {
     ret = ioctl(mFd, VIDIOC_G_FMT, &fmt);
     if (ret) {
         LOGE("getFormat failed for type %d\n", fmt.type);
+        PrintCurrentTrace("V4l2Driver::setCodecPixelFmt: VIDIOC_G_FMT failed");
         return -EINVAL;
     }
     fmt.fmt.pix_mp.pixelformat = codecPixFmt;
@@ -733,6 +770,7 @@ int V4l2Driver::setCodecPixelFmt(uint32_t planeType, uint32_t codecPixFmt) {
     ret = ioctl(mFd, VIDIOC_S_FMT, &fmt);
     if (ret) {
         LOGE("setFormat failed for type %d\n", fmt.type);
+        PrintCurrentTrace("V4l2Driver::setCodecPixelFmt: VIDIOC_S_FMT failed");
         return -EINVAL;
     }
     LOGD("pixelCodecFmt: type %d, [wxh] %dx%d, fmt %#x, size %d\n", fmt.type,
@@ -747,6 +785,7 @@ int V4l2Driver::getSelection(v4l2_selection* sel) {
     if (ret) {
         LOGE("getSelection failed for type %d, target %d\n", sel->type,
             sel->target);
+        PrintCurrentTrace("V4l2Driver::getSelection failed");
         return -EINVAL;
     }
     LOGD("getSelection: type %d, target %d, left %d top %d width %d height %d\n",
@@ -770,6 +809,7 @@ int V4l2Driver::setControl(v4l2_control* ctrl) {
     int ret = ioctl(mFd, VIDIOC_S_CTRL, ctrl);
     if (ret) {
         LOGE("setCotrol failed for \"%s\"\n", ctrl_name(ctrl->id));
+        PrintCurrentTrace("V4l2Driver::setControl failed");
         return -EINVAL;
     }
 
@@ -790,6 +830,7 @@ int V4l2Driver::reqBufs(struct v4l2_requestbuffers* reqbufs) {
     if (ret) {
         LOGE("reqBufs failed for type %d, count %d memory %d\n", reqbufs->type,
             reqbufs->count, reqbufs->memory);
+        PrintCurrentTrace("V4l2Driver::reqBufs failed");
         return -EINVAL;
     }
     return 0;
@@ -798,12 +839,14 @@ int V4l2Driver::reqBufs(struct v4l2_requestbuffers* reqbufs) {
 int V4l2Driver::queueBuf(v4l2_buffer* buf) {
     if (!buf) {
         LOGE("Error: queuing empty v4l2 buffer.\n");
+        PrintCurrentTrace("V4l2Driver::queueBuf: null buffer");
         return -EINVAL;
     }
 
     int ret = ioctl(mFd, VIDIOC_QBUF, buf);
     if (ret) {
         LOGE("failed to QBUF: %s\n", strerror(ret));
+        PrintCurrentTrace("V4l2Driver::queueBuf: VIDIOC_QBUF failed");
         return -EINVAL;
     }
     mBufferQueued = true;
@@ -814,6 +857,7 @@ int V4l2Driver::decCommand(v4l2_decoder_cmd* cmd) {
     int ret = ioctl(mFd, VIDIOC_DECODER_CMD, cmd);
     if (ret) {
         LOGE("decCommand: error %d\n", ret);
+        PrintCurrentTrace("V4l2Driver::decCommand failed");
         return -EINVAL;
     }
     return 0;
@@ -823,6 +867,7 @@ int V4l2Driver::encCommand(v4l2_encoder_cmd* cmd) {
     int ret = ioctl(mFd, VIDIOC_ENCODER_CMD, cmd);
     if (ret) {
         LOGE("encCommand: error %d\n", ret);
+        PrintCurrentTrace("V4l2Driver::encCommand failed");
         return -EINVAL;
     }
     return 0;
@@ -832,6 +877,7 @@ int V4l2Driver::setFormat(struct v4l2_format* fmt) {
     int ret = ioctl(mFd, VIDIOC_S_FMT, fmt);
     if (ret) {
         LOGE("setFormat failed for type %d\n", fmt->type);
+        PrintCurrentTrace("V4l2Driver::setFormat failed");
         return -EINVAL;
     }
     LOGV("setFormat: type %d, [wxh] %dx%d, fmt %#x, size %d\n", fmt->type,
@@ -844,6 +890,7 @@ int V4l2Driver::setParm(v4l2_streamparm* sparm) {
     int ret = ioctl(mFd, VIDIOC_S_PARM, sparm);
     if (ret) {
         LOGE("setParm failed for type %u\n", sparm->type);
+        PrintCurrentTrace("V4l2Driver::setParm failed");
         return -EINVAL;
     }
     return 0;
@@ -854,6 +901,7 @@ int V4l2Driver::setSelection(v4l2_selection* sel) {
     if (ret) {
         LOGE("setSelection failed for type %d, target %d\n", sel->type,
             sel->target);
+        PrintCurrentTrace("V4l2Driver::setSelection failed");
         return -EINVAL;
     }
     LOGV("setSelection: type %d, target %d, left %d top %d width %d height %d\n",
@@ -866,6 +914,7 @@ int V4l2Driver::queryCapabilities(v4l2_capability* caps) {
     int ret = ioctl(mFd, VIDIOC_QUERYCAP, caps);
     if (ret) {
         LOGE("Failed to query capabilities\n");
+        PrintCurrentTrace("V4l2Driver::queryCapabilities failed");
         return -EINVAL;
     }
     LOGV("queryCapabilities: driver name: %s, card: %s, bus_info: %s, "
@@ -890,6 +939,7 @@ int V4l2Driver::queryControl(v4l2_queryctrl* ctrl) {
     int ret = ioctl(mFd, VIDIOC_QUERYCTRL, ctrl);
     if (ret) {
         LOGE("Failed to query ctrl: %s\n", ctrl_name(ctrl->id));
+        PrintCurrentTrace("V4l2Driver::queryControl failed");
         return -EINVAL;
     }
     LOGV("queryCotrol: name: \"%s\", min: %d, max: %d, step: %d, default: %d\n",
@@ -916,11 +966,13 @@ int V4l2Driver::enumFramesize(v4l2_frmsizeenum* frmsize) {
     if (ret) {
         LOGE("enumFramesize failed for pixel_format %#x\n",
             frmsize->pixel_format);
+        PrintCurrentTrace("V4l2Driver::enumFramesize failed");
         return -EINVAL;
     }
     if (frmsize->type != V4L2_FRMSIZE_TYPE_STEPWISE) {
         LOGE("enumFramesize: type (%d) returned in not stepwise\n",
             frmsize->type);
+        PrintCurrentTrace("V4l2Driver::enumFramesize: non-stepwise type");
         return -EINVAL;
     }
     LOGV("enumFramesize: [%u x %u] to [%u x %u]\n", frmsize->stepwise.min_width,
@@ -934,10 +986,12 @@ int V4l2Driver::enumFrameInterval(v4l2_frmivalenum* fival) {
     if (ret) {
         LOGE("enumFrameInterval failed for pixel_format %#x\n",
             fival->pixel_format);
+        PrintCurrentTrace("V4l2Driver::enumFrameInterval failed");
         return -EINVAL;
     }
     if (fival->type != V4L2_FRMIVAL_TYPE_STEPWISE) {
         LOGE("enumFramesize: type (%d) returned in not stepwise\n", fival->type);
+        PrintCurrentTrace("V4l2Driver::enumFrameInterval: non-stepwise type");
         return -EINVAL;
     }
     LOGV("enumFrameInterval: resoltion [%u x %u], interval [%u / %u] to [%u / "

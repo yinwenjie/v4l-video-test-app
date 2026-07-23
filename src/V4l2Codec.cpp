@@ -7,6 +7,7 @@
 
 #include <unistd.h>
 
+#include "Trace.h"
 #include "V4l2Codec.h"
 
 std::unordered_map<std::string, unsigned int> gV4l2KeyCIDMap = {
@@ -231,6 +232,7 @@ int V4l2Codec::setStaticControls() {
         LOGI("%s: id: %#x, value: %d\n", __FUNCTION__, ctrl->id, ctrl->value);
         ret = setControl(ctrl->id, ctrl->value);
         if (ret) {
+            PrintCurrentTrace("V4l2Codec::setStaticControls failed");
             return ret;
         }
         mStaticControls.pop_front();
@@ -284,6 +286,7 @@ int V4l2Codec::setDynamicControls(unsigned int currFrame) {
 
         ret = setControl(ctrl->id, ctrl->value);
         if (ret) {
+            PrintCurrentTrace("V4l2Codec::setDynamicControls failed");
             return ret;
         }
 
@@ -446,6 +449,7 @@ int V4l2Codec::setControl(unsigned int ctrlId, int value) {
     control.value = value;
     ret = mV4l2Driver->setControl(&control);
     if (ret) {
+        PrintCurrentTrace("V4l2Codec::setControl failed");
         return ret;
     }
 
@@ -475,6 +479,7 @@ int V4l2Codec::startInput() {
 
     ret = mV4l2Driver->streamOn(INPUT_MPLANE);
     if (ret) {
+        PrintCurrentTrace("V4l2Codec::startInput failed");
         return ret;
     }
     setInputPortStarted(true);
@@ -487,6 +492,7 @@ int V4l2Codec::startOutput() {
 
     ret = mV4l2Driver->streamOn(OUTPUT_MPLANE);
     if (ret) {
+        PrintCurrentTrace("V4l2Codec::startOutput failed");
         return ret;
     }
     setOutputPortStarted(true);
@@ -537,6 +543,7 @@ int V4l2Codec::setOutputBufferData(std::shared_ptr<v4l2_buffer> buf) {
     auto itr = mOutputBuffersPool.find(buf->index);
     if (itr == mOutputBuffersPool.end()) {
         LOGE("Error: no DMA buffer found for buffer index: %d\n", buf->index);
+        PrintCurrentTrace("V4l2Codec::setOutputBufferData: no DMA buffer found");
         return -EINVAL;
     }
     auto& buffer = itr->second;
@@ -599,6 +606,7 @@ int V4l2Codec::allocateBuffers(port_type port) {
     int bufCount = 0, bufSize = 0, ret = 0;
     std::shared_ptr<v4l2_buffer> buf;
     if (port != INPUT_PORT && port != OUTPUT_PORT) {
+        PrintCurrentTrace("V4l2Codec::allocateBuffers: invalid port");
         return -EINVAL;
     }
 
@@ -618,6 +626,7 @@ int V4l2Codec::allocateBuffers(port_type port) {
     for (int i = 0; i < bufCount; i++) {
         buf = allocateBuffer(i, port, bufSize);
         if (buf == nullptr) {
+            PrintCurrentTrace("V4l2Codec::allocateBuffers: allocateBuffer failed");
             return -EINVAL;
         }
         {
@@ -691,6 +700,7 @@ std::shared_ptr<v4l2_buffer> V4l2Codec::allocateBuffer(int index, port_type port
     memset(buf.get(), 0, sizeof(struct v4l2_buffer));
     plane = (struct v4l2_plane*)malloc(sizeof(struct v4l2_plane) * VIDEO_MAX_PLANES);
     if (plane == nullptr) {
+        PrintCurrentTrace("V4l2Codec::allocateBuffer: malloc v4l2 planes failed");
         return nullptr;
     }
     memset(plane, 0, sizeof(struct v4l2_plane) * VIDEO_MAX_PLANES);
@@ -709,6 +719,7 @@ std::shared_ptr<v4l2_buffer> V4l2Codec::allocateBuffer(int index, port_type port
             int ret, bufFd = -1;
             ret = mV4l2Driver->AllocDMABuffer(bufSize, &bufFd);
             if (ret) {
+                PrintCurrentTrace("V4l2Codec::allocateBuffer: AllocDMABuffer failed");
                 return nullptr;
             }
             dmaBuf = std::make_shared<DMABuffer>(bufSize, bufFd);
@@ -725,6 +736,7 @@ std::shared_ptr<v4l2_buffer> V4l2Codec::allocateBuffer(int index, port_type port
         if (ret)
         {
             LOGE("Allocate MMAP buffer failed.\n");
+            PrintCurrentTrace("V4l2Codec::allocateBuffer: AllocMMAPBuffer failed");
             return nullptr;
         }
         if (port == INPUT_PORT) {

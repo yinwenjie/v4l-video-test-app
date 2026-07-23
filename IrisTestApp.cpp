@@ -5,7 +5,7 @@
  **************************************************************************************************
 */
 
-#include <execinfo.h>
+#include <errno.h>
 #include <getopt.h>
 #include <signal.h>
 #include <unistd.h>
@@ -21,12 +21,12 @@
 
 #include "ConfigParser.h"
 #include "Log.h"
+#include "Trace.h"
 #include "V4l2Decoder.h"
 #include "V4l2Driver.h"
 #include "V4l2Encoder.h"
 
 #define SUCCESS 0
-#define BACKTRACE_SIZE 1024
 
 #define TEST_APP_VERSION "1.15"
 
@@ -45,60 +45,30 @@ std::unordered_map<std::string, unsigned int> gColorFormatIDMap = {
     {"QC10C", V4L2_PIX_FMT_QC10C},
 };
 
-int64_t getMSec() {
-    auto time_now = std::chrono::system_clock::now();
-    auto duration_in_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        time_now.time_since_epoch());
-    return duration_in_ms.count();
-}
+void handle(int signal_num, siginfo_t* info, void* context) {
+    int saved_errno = errno;
+    PrintCrashTrace(signal_num, info, context);
 
-void handle(int signal_num) {
-#ifdef DEBUG
-    char msg[BACKTRACE_SIZE] = {0};
-    std::string backTraceName = "./back_trace_" + std::to_string(getMSec());
-    FILE* fp = fopen(backTraceName.c_str(), "a+");
-    if (fp == nullptr) {
-        return;
-    }
-    snprintf(msg, sizeof(msg), "signal:%d\n", signal_num);
-    fwrite(msg, 1, strlen(msg), fp);
-    memset(msg, 0, sizeof(msg));
-
-    int nptrs;
-    void* buffer[BACKTRACE_SIZE];
-    char** strings;
-
-    nptrs = backtrace(buffer, BACKTRACE_SIZE);
-    snprintf(msg, sizeof(msg), "backtrace() return %d address\n", nptrs);
-    fwrite(msg, 1, strlen(msg), fp);
-    memset(msg, 0, sizeof(msg));
-
-    strings = backtrace_symbols(buffer, nptrs);
-    if (strings == nullptr) {
-        perror("backtrace_symbols");
-        exit(EXIT_FAILURE);
-    }
-
-    for (int i = 0; i < nptrs; i++) {
-        snprintf(msg, sizeof(msg), "[%02d] %s\n", i, strings[i]);
-        fwrite(msg, 1, strlen(msg), fp);
-        memset(msg, 0, sizeof(msg));
-    }
-
-    fclose(fp);
-    free(strings);
-#endif
+    errno = saved_errno;
     signal(signal_num, SIG_DFL);
+    raise(signal_num);
 }
 
 void InitSignalHandler() {
-    signal(SIGINT, &handle);
-    signal(SIGSEGV, &handle);
-    signal(SIGABRT, &handle);
-    signal(SIGPIPE, &handle);
+    struct sigaction action = {};
+    action.sa_sigaction = handle;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = SA_SIGINFO | SA_RESETHAND | SA_NODEFER;
+
+    sigaction(SIGSEGV, &action, nullptr);
+    sigaction(SIGABRT, &action, nullptr);
+    sigaction(SIGBUS, &action, nullptr);
+    sigaction(SIGFPE, &action, nullptr);
+    sigaction(SIGILL, &action, nullptr);
+    sigaction(SIGTRAP, &action, nullptr);
 }
 
-static int TestingDecoder(ConfigureStruct& config, std::string sessionId) {
+int TestingDecoder(ConfigureStruct& config, std::string sessionId) {
     std::shared_ptr<V4l2Decoder> mDecoder = nullptr;
     std::shared_ptr<V4l2DecoderCB> mDecoderCB = nullptr;
     unsigned int codecFmt, pixelFmt;
@@ -111,37 +81,49 @@ static int TestingDecoder(ConfigureStruct& config, std::string sessionId) {
     mDecoderCB = std::make_shared<V4l2DecoderCB>(mDecoder.get(), sessionId);
 
     ret = mDecoder->setMemoryType(config.MemoryType);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "TestingDecoder: setMemoryType failed");
     ret = mDecoder->init();
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "TestingDecoder: init failed");
     ret = mDecoder->initFFStreamParser(config.InputPath);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "TestingDecoder: initFFStreamParser failed");
     ret = mDecoder->registerCallbacks(mDecoderCB);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "TestingDecoder: registerCallbacks failed");
 
     ret = mDecoder->populateDynamicCommands(config.dynamicCommands);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "TestingDecoder: populateDynamicCommands failed");
 
     mDecoder->setDump(config.DumpInputPath, config.Outputpath);
 
-    ret |= mDecoder->setInputSizeOverWrite(2 * 1024 * 1024);
-    ret |= mDecoder->setInputActualCount(config.InputBufferCount);
-    ret |= mDecoder->setOutputActualCount(config.OutputBufferCount);
-    ret |= mDecoder->setResolution(config.Width, config.Height);
-    ret |= mDecoder->configureInput();
-    ret |= mDecoder->allocateBuffers(INPUT_PORT);
-    ret |= mDecoder->startInput();
-    ret |= mDecoder->queueBuffers(config.NumFrames);
+    ret = mDecoder->setInputSizeOverWrite(2 * 1024 * 1024);
+    TRACE_RECORD_IF_ERROR(ret, "TestingDecoder: setInputSizeOverWrite failed");
+    if (!ret) {
+        ret = mDecoder->setInputActualCount(config.InputBufferCount);
+        TRACE_RECORD_IF_ERROR(ret, "TestingDecoder: setInputActualCount failed");
+    }
+    if (!ret) {
+        ret = mDecoder->setOutputActualCount(config.OutputBufferCount);
+        TRACE_RECORD_IF_ERROR(ret, "TestingDecoder: setOutputActualCount failed");
+    }
+    if (!ret) {
+        ret = mDecoder->setResolution(config.Width, config.Height);
+        TRACE_RECORD_IF_ERROR(ret, "TestingDecoder: setResolution failed");
+    }
+    if (!ret) {
+        ret = mDecoder->configureInput();
+        TRACE_RECORD_IF_ERROR(ret, "TestingDecoder: configureInput failed");
+    }
+    if (!ret) {
+        ret = mDecoder->allocateBuffers(INPUT_PORT);
+        TRACE_RECORD_IF_ERROR(ret, "TestingDecoder: allocate input buffers failed");
+    }
+    if (!ret) {
+        ret = mDecoder->startInput();
+        TRACE_RECORD_IF_ERROR(ret, "TestingDecoder: startInput failed");
+    }
+    if (!ret) {
+        ret = mDecoder->queueBuffers(config.NumFrames);
+        TRACE_RECORD_IF_ERROR(ret, "TestingDecoder: queueBuffers failed");
+    }
 
     mDecoder->stopOutput();
     mDecoder->stopInput();
@@ -157,7 +139,7 @@ static int TestingDecoder(ConfigureStruct& config, std::string sessionId) {
     return ret;
 }
 
-static int TestingEncoder(ConfigureStruct& config, std::string sessionId) {
+int TestingEncoder(ConfigureStruct& config, std::string sessionId) {
     std::shared_ptr<V4l2Encoder> mEncoder = nullptr;
     std::shared_ptr<V4l2EncoderCB> mEncoderCB = nullptr;
     unsigned int codecFmt, pixelFmt;
@@ -170,38 +152,24 @@ static int TestingEncoder(ConfigureStruct& config, std::string sessionId) {
     mEncoderCB = std::make_shared<V4l2EncoderCB>(mEncoder.get(), sessionId);
 
     ret = mEncoder->setMemoryType(config.MemoryType);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "TestingEncoder: setMemoryType failed");
     ret = mEncoder->init();
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "TestingEncoder: init failed");
     ret = mEncoder->initFFYUVParser(config.InputPath, config.Width,
                                     config.Height, config.PixelFormat);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "TestingEncoder: initFFYUVParser failed");
 
     ret = mEncoder->registerCallbacks(mEncoderCB);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "TestingEncoder: registerCallbacks failed");
 
     ret = mEncoder->populateStaticConfigs(config.staticControls);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "TestingEncoder: populateStaticConfigs failed");
 
     ret = mEncoder->populateDynamicConfigs(config.dynamicControls);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "TestingEncoder: populateDynamicConfigs failed");
 
     ret = mEncoder->populateDynamicCommands(config.dynamicCommands);
-    if (ret) {
-        return ret;
-    }
+    TRACE_RETURN_IF_ERROR(ret, "TestingEncoder: populateDynamicCommands failed");
 
     if (config.InputBufferCount > 0) {
         mEncoder->setInputActualCount(config.InputBufferCount);
@@ -214,16 +182,44 @@ static int TestingEncoder(ConfigureStruct& config, std::string sessionId) {
     mEncoder->setNALEncoding(false);
     mEncoder->setDump(config.DumpInputPath, config.Outputpath);
 
-    ret |= mEncoder->setOperatingRate(1, config.OperatingRate);
-    ret |= mEncoder->setFrameRate(1, config.FrameRate);
-    ret |= mEncoder->setStaticControls();
-    ret |= mEncoder->configureInput();
-    ret |= mEncoder->configureOutput();
-    ret |= mEncoder->allocateBuffers(OUTPUT_PORT);
-    ret |= mEncoder->allocateBuffers(INPUT_PORT);
-    ret |= mEncoder->startOutput();
-    ret |= mEncoder->startInput();
-    ret |= mEncoder->queueBuffers(config.NumFrames);
+    ret = mEncoder->setOperatingRate(1, config.OperatingRate);
+    TRACE_RECORD_IF_ERROR(ret, "TestingEncoder: setOperatingRate failed");
+    if (!ret) {
+        ret = mEncoder->setFrameRate(1, config.FrameRate);
+        TRACE_RECORD_IF_ERROR(ret, "TestingEncoder: setFrameRate failed");
+    }
+    if (!ret) {
+        ret = mEncoder->setStaticControls();
+        TRACE_RECORD_IF_ERROR(ret, "TestingEncoder: setStaticControls failed");
+    }
+    if (!ret) {
+        ret = mEncoder->configureInput();
+        TRACE_RECORD_IF_ERROR(ret, "TestingEncoder: configureInput failed");
+    }
+    if (!ret) {
+        ret = mEncoder->configureOutput();
+        TRACE_RECORD_IF_ERROR(ret, "TestingEncoder: configureOutput failed");
+    }
+    if (!ret) {
+        ret = mEncoder->allocateBuffers(OUTPUT_PORT);
+        TRACE_RECORD_IF_ERROR(ret, "TestingEncoder: allocate output buffers failed");
+    }
+    if (!ret) {
+        ret = mEncoder->allocateBuffers(INPUT_PORT);
+        TRACE_RECORD_IF_ERROR(ret, "TestingEncoder: allocate input buffers failed");
+    }
+    if (!ret) {
+        ret = mEncoder->startOutput();
+        TRACE_RECORD_IF_ERROR(ret, "TestingEncoder: startOutput failed");
+    }
+    if (!ret) {
+        ret = mEncoder->startInput();
+        TRACE_RECORD_IF_ERROR(ret, "TestingEncoder: startInput failed");
+    }
+    if (!ret) {
+        ret = mEncoder->queueBuffers(config.NumFrames);
+        TRACE_RECORD_IF_ERROR(ret, "TestingEncoder: queueBuffers failed");
+    }
 
     mEncoder->stopInput();
     mEncoder->stopOutput();
@@ -246,6 +242,7 @@ int getRegexMatchFileNames(std::string regexPath,
 
     if (regexPath.empty()) {
         printf("Error: no configure file found. Run \"./iris_v4l2_test --help\" for more info.\n");
+        PrintCurrentTrace("getRegexMatchFileNames: empty config path");
         return -EINVAL;
     }
 
@@ -286,30 +283,37 @@ int getRegexMatchFileNames(std::string regexPath,
     return 0;
 }
 
+void RunSingleTest(std::string test,
+                   std::unordered_map<std::string, ConfigureStruct>& mapTestCasesConfig,
+                   std::ofstream& resultFile) {
+    int ret = 0;
+    auto& config = mapTestCasesConfig[test];
+    ResetFailureTraceFlag();
+
+    if (config.Domain.compare("Decoder") == 0) {
+        ret = TestingDecoder(config, test);
+    } else {
+        ret = TestingEncoder(config, test);
+    }
+
+    if (ret) {
+        if (!IsFailureTracePrinted()) {
+            PrintCurrentTrace("testcase returned failure");
+        }
+        std::cout << "Testcase[ " << test << "] : Failed" << std::endl;
+        resultFile << "Testcase[ " << test << "] : Failed" << std::endl;
+    } else {
+        std::cout << "Testcase[ " << test << "] : Passed" << std::endl;
+        resultFile << "Testcase[ " << test << "] : Passed" << std::endl;
+    }
+}
+
 void runAndWaitForComplete(
         std::string& ExecutionMode, std::unordered_map<std::string,
         ConfigureStruct>& mapTestCasesConfig, std::ofstream & resultFile) {
-    auto runTest = [&](std::string test) -> void {
-        int ret = 0;
-        auto& config = mapTestCasesConfig[test];
-
-        if (config.Domain.compare("Decoder") == 0) {
-            ret = TestingDecoder(config, test);
-        } else {
-            ret = TestingEncoder(config, test);
-        }
-
-        if (ret) {
-            std::cout << "Testcase[ " << test << "] : Failed" << std::endl;
-            resultFile << "Testcase[ " << test << "] : Failed" << std::endl;
-
-        } else {
-            std::cout << "Testcase[ " << test << "] : Passed" << std::endl;
-            resultFile << "Testcase[ " << test << "] : Passed" << std::endl;
-        }
+    auto waitFunc = [&](std::string test) -> void {
+        return RunSingleTest(test, mapTestCasesConfig, resultFile);
     };
-
-    auto waitFunc = [&](std::string test) -> void { return runTest(test); };
 
     std::vector<std::shared_ptr<std::thread>> threads;
     if (ExecutionMode == "Concurrent") {
@@ -320,7 +324,7 @@ void runAndWaitForComplete(
         if (ExecutionMode == "Concurrent") {
             threads.push_back(std::make_shared<std::thread>(waitFunc, test));
         } else {
-            runTest(test);
+            RunSingleTest(test, mapTestCasesConfig, resultFile);
         }
     }
 
@@ -335,7 +339,7 @@ void runAndWaitForComplete(
     return;
 }
 
-static void showUsage() {
+void showUsage() {
     printf("iris_v4l2_test [V4L Video Test app] \n");
     printf("Usage : iris_v4l2_test [OPTIONS] CONFIG.json\n");
     printf("[OPTIONS] : --help       : No Argument Required         : Display the options\n");
@@ -359,6 +363,7 @@ int main(int argc, char** argv) {
     if (!resultFile.is_open()) {
         std::cout << "Testcase : Failed to open Results.csv file";
         std::cout << std::endl;
+        PrintCurrentTrace("main: failed to open results file");
         return -1;
     }
 
@@ -399,6 +404,7 @@ int main(int argc, char** argv) {
                 break;
             default:
                 printf("Error: invalid option. Run \"./iris_v4l2_test --help\" for more info.\n");
+                PrintCurrentTrace("main: invalid command line option");
                 return -1;
         }
     }
@@ -410,6 +416,7 @@ int main(int argc, char** argv) {
     if (ret) {
         std::cout << "Testcase : Failed" << std::endl;
         resultFile << "Testcase : Failed" << std::endl;
+        PrintCurrentTrace("main: getRegexMatchFileNames failed");
         return ret;
     }
 
@@ -423,6 +430,7 @@ int main(int argc, char** argv) {
                                mapTestCasesConfig);
         if (ret) {
             printf("Error: Json parsing failed - %s\n", filename.c_str());
+            PrintCurrentTrace("main: parseJsonConfigs failed");
 
             std::cout << "Testcase[" << filename << "] : Failed" << std::endl;
             resultFile << "Testcase[ " << filename << "] : Failed" << std::endl;

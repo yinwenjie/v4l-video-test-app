@@ -12,6 +12,7 @@
 
 #include "V4l2Driver.h"
 #include "FFStreamParser.h"
+#include "Trace.h"
 
 FFStreamParser::FFStreamParser(std::string inputPath, std::string sessionId)
     : mInputPath(inputPath), mSessionId(sessionId) {}
@@ -38,6 +39,7 @@ int FFStreamParser::init() {
     if (ret) {
         std::cerr << "[" << mSessionId << "]: Error: Open input file failed"
                   << std::endl;
+        PrintCurrentTrace("FFStreamParser::init: avformat_open_input failed");
         return ret;
     }
 
@@ -45,6 +47,7 @@ int FFStreamParser::init() {
     if (ret) {
         std::cerr << "[" << mSessionId
                   << "]: Error: Cannot find stream information" << std::endl;
+        PrintCurrentTrace("FFStreamParser::init: avformat_find_stream_info failed");
         return ret;
     }
 
@@ -52,6 +55,7 @@ int FFStreamParser::init() {
 
     if (!mFmtCtx->iformat) {
         std::cerr << "[" << mSessionId << "]: Error: empty input format!\n";
+        PrintCurrentTrace("FFStreamParser::init: empty input format");
         return -EINVAL;
     }
     if (mFmtCtx->iformat->long_name) {
@@ -65,6 +69,7 @@ int FFStreamParser::init() {
         std::cerr << "[" << mSessionId
                   << "]: Error: Cannot find a video stream in the input file"
                   << std::endl;
+        PrintCurrentTrace("FFStreamParser::init: cannot find video stream");
         return ret;
     }
     video_idx = ret;
@@ -96,6 +101,7 @@ int FFStreamParser::init() {
         default:
             std::cerr << "[" << mSessionId << "]: Error: unsupported codec."
                       << std::endl;
+            PrintCurrentTrace("FFStreamParser::init: unsupported codec");
             return -EINVAL;
     }
 
@@ -104,6 +110,7 @@ int FFStreamParser::init() {
         if (ret) {
             std::cerr << "[" << mSessionId
                       << "]: Error: Alloc bitstream filter failed" << std::endl;
+            PrintCurrentTrace("FFStreamParser::init: av_bsf_alloc failed");
             return ret;
         }
 
@@ -113,6 +120,7 @@ int FFStreamParser::init() {
         if (ret) {
             std::cerr << "[" << mSessionId
                       << "]: Error: Init bitstream filter failed" << std::endl;
+            PrintCurrentTrace("FFStreamParser::init: av_bsf_init failed");
             return ret;
         }
     }
@@ -121,6 +129,7 @@ int FFStreamParser::init() {
     if (!mPkt) {
         std::cerr << "[" << mSessionId << "]: Error: cannot allocate AVPacket"
                   << std::endl;
+        PrintCurrentTrace("FFStreamParser::init: av_packet_alloc failed");
         return -ENOMEM;
     }
 
@@ -135,6 +144,9 @@ int FFStreamParser::getNextPacket() {
         if (ret) {
             std::cerr << "[" << mSessionId << "]: Error: Read frame failed"
                       << std::endl;
+            if (ret != AVERROR_EOF) {
+                PrintCurrentTrace("FFStreamParser::getNextPacket: av_read_frame failed");
+            }
             return ret;
         }
 
@@ -145,12 +157,13 @@ int FFStreamParser::getNextPacket() {
 
         if (mBsf) {
             ret = av_bsf_send_packet(mBsf, mPkt);
-            if (ret) {
-                std::cerr << "[" << mSessionId
-                          << "]: Error: Send pkt to bitstream filter failed"
-                          << std::endl;
-                return ret;
-            }
+        if (ret) {
+            std::cerr << "[" << mSessionId
+                      << "]: Error: Send pkt to bitstream filter failed"
+                      << std::endl;
+            PrintCurrentTrace("FFStreamParser::getNextPacket: av_bsf_send_packet failed");
+            return ret;
+        }
             mBsfDataPending = true;
         }
     }
@@ -161,6 +174,9 @@ int FFStreamParser::getNextPacket() {
             mBsfDataPending = false;
         }
         if (ret < 0) {
+            if (ret != AVERROR(EAGAIN)) {
+                PrintCurrentTrace("FFStreamParser::getNextPacket: av_bsf_receive_packet failed");
+            }
             return ret;
         }
     }
@@ -222,11 +238,13 @@ int FFStreamParser::seekToFrame(int frame) {
             std::cout << "[" << mSessionId
                       << "]: Error: failed to seek to frame " << frame
                       << std::endl;
+            PrintCurrentTrace("FFStreamParser::seekToFrame: av_seek_frame failed");
             return ret;
         }
     } else {
         uint64_t pos = 0;
         if (mPktPosition.find(frame) == mPktPosition.end()) {
+            PrintCurrentTrace("FFStreamParser::seekToFrame: frame position not found");
             return -1;
         } else {
             pos = mPktPosition[frame];
@@ -239,6 +257,7 @@ int FFStreamParser::seekToFrame(int frame) {
             std::cout << "[" << mSessionId
                       << "]: Error: failed to seek to frame " << frame
                       << std::endl;
+            PrintCurrentTrace("FFStreamParser::seekToFrame: raw av_seek_frame failed");
             return ret;
         }
     }
@@ -250,6 +269,7 @@ int FFStreamParser::randomSeek() {
     std::srand(std::time(nullptr));
     int rand_seekto = std::rand() % mTotalFrameCnt;
     if (seekToFrame(rand_seekto) < 0) {
+        PrintCurrentTrace("FFStreamParser::randomSeek: seekToFrame failed");
         return -1;
     }
     return rand_seekto;

@@ -36,7 +36,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     message(STATUS "Debug mode")
     add_definitions(-DDEBUG)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g -rdynamic")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g")
 else()
     message(STATUS "Release mode")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")
@@ -54,6 +54,7 @@ set(VIDC_TEST_SOURCES
     src/ConfigParser.cpp
     src/FFStreamParser.cpp
     src/FFYUVParser.cpp
+    src/Trace.cpp
     src/UBWC_Utils.cpp
     src/V4l2Driver.cpp
     src/V4l2Codec.cpp
@@ -63,29 +64,47 @@ set(VIDC_TEST_SOURCES
 
 add_executable(iris_v4l2_test ${VIDC_TEST_SOURCES})
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(iris_v4l2_test PRIVATE -fno-omit-frame-pointer)
+    target_link_options(iris_v4l2_test PRIVATE -rdynamic)
+endif()
+
+set_target_properties(iris_v4l2_test PROPERTIES
+    BUILD_RPATH "\$ORIGIN/lib"
+    BUILD_WITH_INSTALL_RPATH TRUE
+    INSTALL_RPATH "\$ORIGIN/lib"
+    INSTALL_RPATH_USE_LINK_PATH FALSE
+)
+
 find_package(Threads REQUIRED)
 
 if(CMAKE_CROSSCOMPILING)
     message(STATUS "Cross-compiling for ${CMAKE_SYSTEM_PROCESSOR}")
+
+    set(IRIS_3P_LIB_DIRS
+        ${CMAKE_CURRENT_SOURCE_DIR}/third-parties/jsoncpp/output/lib
+        ${CMAKE_CURRENT_SOURCE_DIR}/third-parties/ffmpeg/output/lib
+    )
+
+    set(IRIS_3P_STATIC_LIBS
+        ${CMAKE_CURRENT_SOURCE_DIR}/third-parties/ffmpeg/output/lib/libavformat.a
+        ${CMAKE_CURRENT_SOURCE_DIR}/third-parties/ffmpeg/output/lib/libavcodec.a
+        ${CMAKE_CURRENT_SOURCE_DIR}/third-parties/ffmpeg/output/lib/libswresample.a
+        ${CMAKE_CURRENT_SOURCE_DIR}/third-parties/ffmpeg/output/lib/libavutil.a
+        ${CMAKE_CURRENT_SOURCE_DIR}/third-parties/jsoncpp/output/lib/libjsoncpp.a
+    )
 
     target_include_directories(iris_v4l2_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/third-parties/jsoncpp/output/include
         ${CMAKE_CURRENT_SOURCE_DIR}/third-parties/ffmpeg/output/include
     )
 
-    target_link_directories(iris_v4l2_test PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/third-parties/jsoncpp/output/lib
-        ${CMAKE_CURRENT_SOURCE_DIR}/third-parties/ffmpeg/output/lib
+    target_link_libraries(iris_v4l2_test
+        ${IRIS_3P_STATIC_LIBS}
+        Threads::Threads
+        ${CMAKE_DL_LIBS}
     )
 
-    target_link_libraries(iris_v4l2_test
-        avformat
-        avcodec
-        swresample
-        avutil
-        Threads::Threads
-        jsoncpp
-    )
 else()
     message(STATUS "Native build on ${CMAKE_HOST_SYSTEM_PROCESSOR}")
 
@@ -103,6 +122,7 @@ else()
     target_link_libraries(iris_v4l2_test
         PkgConfig::FFMPEG
         Threads::Threads
+        ${CMAKE_DL_LIBS}
         jsoncpp_lib
     )
 endif()
